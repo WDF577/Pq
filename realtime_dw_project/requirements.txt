@@ -1,0 +1,4 @@
+confluent-kafka>=2.0
+streamlit>=1.28
+pandas>=2.0
+plotly>=5.18

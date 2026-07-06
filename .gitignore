@@ -1,0 +1,37 @@
+# System
+.DS_Store
+__MACOSX/
+Thumbs.db
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+env/
+
+# Logs
+*.log
+logs/
+tmp/
+temp/
+output/
+data/
+
+# IDE
+.idea/
+.vscode/
+
+# Docker runtime
+*.pid
+*.sock
+
+# Flink checkpoints/savepoints
+checkpoints/
+savepoints/
+
+# Archives
+*.zip
+*.tar
+*.gz
+*.7z
