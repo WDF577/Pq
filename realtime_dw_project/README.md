@@ -67,27 +67,27 @@ realtime_dw_project/
 | ClickHouse | 24.3 | 存储明细和统计结果 |
 | Python | 3.x | 生成模拟日志 |
 
-## 5. 新手需要先理解的概念
+## 5. 核心概念
 
-### 5.1 什么是实时数仓
+### 5.1 实时数仓
 
-实时数仓就是数据一产生就尽快进入处理链路，然后持续更新统计结果。例如用户刚刚完成支付，系统就能在很短时间内更新支付金额、成交人数、热销商品等指标。
+数据产生后持续进入处理链路，统计结果实时更新。例如用户完成支付后，系统在很短时间内更新支付金额、成交人数、热销商品等指标。
 
-### 5.2 为什么要用 Kafka
+### 5.2 为什么用 Kafka
 
-用户行为日志是持续产生的，不适合先保存成一个固定文件再处理。Kafka 可以把源源不断的日志先接住，再让 Flink 持续消费。
+用户行为日志是持续产生的，不适合先保存成文件再批量处理。Kafka 承接源源不断的日志流，Flink 再持续消费。
 
-### 5.3 为什么要用 Flink SQL
+### 5.3 为什么用 Flink SQL
 
-Flink 适合处理实时流数据。Flink SQL 可以用接近普通 SQL 的方式编写实时任务，降低代码复杂度。
+Flink 适合处理实时流数据，Flink SQL 可以用接近标准 SQL 的方式编写实时任务，降低代码复杂度。
 
-### 5.4 为什么要用 MySQL 维表
+### 5.4 为什么用 MySQL 维表
 
-用户行为日志中一般只有 `product_id`、`shop_id` 这类 ID。要得到商品名称、品类、店铺名称，就需要关联维表。本项目使用 MySQL 模拟业务系统中的维表。
+用户行为日志中通常只有 `product_id`、`shop_id`。要得到商品名称、品类、店铺名称，需要通过维表关联补充。本项目使用 MySQL 模拟业务系统中的维表。
 
-### 5.5 为什么要用 ClickHouse
+### 5.5 为什么用 ClickHouse
 
-ClickHouse 适合分析查询。本项目中 Flink 先把实时结果写入 Kafka 结果 Topic，再由 Python 装载脚本写入 ClickHouse，最后用 SQL 查看 PV、UV、支付金额、热销商品等指标。
+ClickHouse 适合 OLAP 分析查询。Flink 先把实时结果写入 Kafka 结果 Topic，再由 Python 脚本写入 ClickHouse，最后用 SQL 查询 PV、UV、支付金额、热销商品等指标。
 
 ## 6. 数据分层
 
@@ -335,7 +335,7 @@ LIMIT 20;
 
 ## 10. 核心 SQL 说明
 
-### 9.1 Kafka 源表
+### 10.1 Kafka 源表
 
 `01_create_source_tables.sql` 中的 `ods_user_behavior` 对应 Kafka Topic。Flink 会从这个 Topic 持续读取 JSON 数据。
 
@@ -352,7 +352,7 @@ LIMIT 20;
 | `amount` | 金额 |
 | `event_time` | 事件时间 |
 
-### 9.2 DWD 明细层
+### 10.2 DWD 明细层
 
 `02_create_dwd_tables.sql` 会做三件事：
 
@@ -362,7 +362,7 @@ LIMIT 20;
 
 清洗后的明细会先写入 Kafka Topic `dwd_user_behavior`，再由 `scripts/load_kafka_to_clickhouse.py` 写入 ClickHouse 表 `dwd_user_behavior`。
 
-### 9.3 ADS 指标层
+### 10.3 ADS 指标层
 
 `03_create_dws_ads_tables.sql` 包含两个主要指标：
 
@@ -386,11 +386,11 @@ LIMIT 20;
 
 ## 12. 常见问题
 
-### 11.1 Docker 镜像下载慢
+### 12.1 Docker 镜像下载慢
 
 第一次运行需要拉取 Kafka、MySQL、ClickHouse、Flink 镜像。如果下载慢，可以更换网络，或者配置 Docker 镜像加速。
 
-### 11.2 端口被占用
+### 12.2 端口被占用
 
 本项目默认使用：
 
@@ -404,7 +404,7 @@ LIMIT 20;
 
 如果本机已有相同服务，需要先关闭原服务，或者修改 `docker-compose.yml` 中的端口映射。
 
-### 11.3 Python 连接不上 Kafka
+### 12.3 Python 连接不上 Kafka
 
 先确认 Kafka 容器是否启动：
 
@@ -424,11 +424,11 @@ localhost:9092
 kafka:29092
 ```
 
-### 11.4 Flink SQL 提示找不到 connector
+### 12.4 Flink SQL 提示找不到 connector
 
 这是 Flink 运行环境问题。需要补充 Kafka、JDBC、MySQL 对应 Connector jar。可以先执行 `scripts/download_connectors.sh`，再重启 Flink。
 
-### 11.5 ClickHouse 查询不到结果
+### 12.5 ClickHouse 查询不到结果
 
 按顺序检查：
 
@@ -461,7 +461,7 @@ kafka:29092
 | `ads_channel_funnel` | 1 分钟 | 5 个渠道的四级行为漏斗（view→cart→order→pay） |
 | `ads_realtime_alert` | 实时 | 支付归零、支付骤降、转化率异常等告警 |
 
-## 15. 验收结果（最新）
+## 16. 验收结果（最新）
 
 ```
 verify summary: 6 PASS, 0 FAIL
@@ -470,7 +470,7 @@ category_rows=60, funnel_rows=398, alert_rows=3
 All core checks PASSED!
 ```
 
-## 16. Streamlit Dashboard
+## 17. Streamlit Dashboard
 
 ```bash
 cd realtime_dw_project
@@ -485,7 +485,7 @@ python3 -m streamlit run dashboard/app.py
 - 渠道转化漏斗图
 - 实时异常告警表格
 
-## 17. 停止项目
+## 18. 停止项目
 
 停止所有容器：
 
@@ -495,18 +495,7 @@ docker compose down
 
 如果需要清理容器数据卷，可以根据实际情况手动删除 Docker volume。学习阶段一般不建议直接清理，避免误删已生成的数据。
 
-## 14. 学习路线
-
-新手建议按下面路线学习：
-
-1. 先运行 `generate_mock_events.py`，看懂模拟日志格式。
-2. 再看 `create_mysql_dim.sql`，理解维表里保存了什么。
-3. 看 `01_create_source_tables.sql`，理解 Flink 如何读取 Kafka 和 MySQL。
-4. 看 `02_create_dwd_tables.sql`，理解实时明细层如何清洗和补维。
-5. 看 `03_create_dws_ads_tables.sql`，理解窗口聚合如何生成指标。
-6. 看 `04_queries.sql`，理解如何查询最终结果。
-
-## 15. 可扩展方向
+## 19. 可扩展方向
 
 - 增加用户维表，统计用户画像指标。
 - 增加地区维度，统计不同省市的访问和成交。

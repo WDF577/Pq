@@ -173,7 +173,6 @@ Flink Web UI：**http://localhost:8081**
 
 ```
 ├── README.md                         # 项目说明（本文件）
-├── START_HERE.md                     # 新手入门指南
 ├── REPORT.md                         # 完整项目报告
 ├── start_demo.sh                     # 一键启动脚本
 ├── stop_demo.sh                      # 停止脚本
