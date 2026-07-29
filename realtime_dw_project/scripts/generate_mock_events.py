@@ -25,7 +25,7 @@ DIRTY_PRODUCT_ID_INVALID = 0.01   # 1%
 DIRTY_SHOP_ID_INVALID = 0.005     # 0.5%
 
 
-def build_event(event_time_offset=0, time_span_minutes=0):
+def build_event(event_time_offset=0, time_span_minutes=0, event_time=None):
     """生成一条用户行为事件，包含正常数据和脏数据"""
     event_type = random.choices(EVENT_TYPES, weights=[70, 15, 10, 5], k=1)[0]
     amount = 0.0
@@ -59,10 +59,12 @@ def build_event(event_time_offset=0, time_span_minutes=0):
     if random.random() < DIRTY_SHOP_ID_INVALID:
         shop_id = random.choice([99, 88, 0])
 
-    # 计算事件时间：基础偏移 + 过去时间跨度的随机分布
-    ts_offset = event_time_offset
-    if time_span_minutes > 0:
-        ts_offset = event_time_offset + random.randint(-time_span_minutes * 60, 0)
+    if event_time is None:
+        # Continuous mode keeps the original relative-time behavior.
+        ts_offset = event_time_offset
+        if time_span_minutes > 0:
+            ts_offset = event_time_offset + random.randint(-time_span_minutes * 60, 0)
+        event_time = datetime.now() + timedelta(seconds=ts_offset)
 
     return {
         "event_id": event_id,
@@ -72,7 +74,7 @@ def build_event(event_time_offset=0, time_span_minutes=0):
         "event_type": event_type,
         "channel": random.choice(CHANNELS),
         "amount": amount,
-        "event_time": (datetime.now() + timedelta(seconds=ts_offset)).strftime("%Y-%m-%d %H:%M:%S"),
+        "event_time": event_time.strftime("%Y-%m-%d %H:%M:%S"),
     }
 
 
@@ -83,7 +85,18 @@ def parse_args():
     parser.add_argument("--count", type=int, default=0, help="0 means keep running.")
     parser.add_argument("--interval", type=float, default=0.2)
     parser.add_argument("--event-time-offset", type=int, default=0)
-    parser.add_argument("--time-span-minutes", type=int, default=0, help="Spread events randomly across past N minutes.")
+    parser.add_argument(
+        "--time-span-minutes",
+        type=int,
+        default=0,
+        help="For finite runs, spread event time in order across the past N minutes.",
+    )
+    parser.add_argument(
+        "--out-of-order-seconds",
+        type=int,
+        default=3,
+        help="Bounded event-time jitter for finite time-span runs.",
+    )
     parser.add_argument("--no-dirty", action="store_true", help="Disable dirty data generation.")
     return parser.parse_args()
 
@@ -108,9 +121,24 @@ def main():
 
     print(f"writing mock events to Kafka topic: {args.topic}")
     print(f"products: {len(PRODUCT_IDS)}, shops: {len(SHOP_IDS)}, users: {USER_ID_RANGE}")
+    span_end = datetime.now() + timedelta(seconds=args.event_time_offset)
+    span_start = span_end - timedelta(minutes=args.time_span_minutes)
     sent = 0
     while args.count <= 0 or sent < args.count:
-        event = build_event(args.event_time_offset, args.time_span_minutes)
+        event_time = None
+        if args.count > 0 and args.time_span_minutes > 0:
+            progress = sent / max(args.count - 1, 1)
+            event_time = span_start + (span_end - span_start) * progress
+            jitter = random.uniform(
+                -args.out_of_order_seconds,
+                args.out_of_order_seconds,
+            )
+            event_time = min(span_end, event_time + timedelta(seconds=jitter))
+        event = build_event(
+            args.event_time_offset,
+            args.time_span_minutes,
+            event_time=event_time,
+        )
         producer.produce(
             args.topic,
             value=json.dumps(event, ensure_ascii=False, default=str).encode("utf-8"),

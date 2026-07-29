@@ -110,18 +110,18 @@ def main():
                             "metric_value": cur_amount,
                         })
 
-                # 告警 4: 支付转化率异常（view → pay < 1%）
-                pv = int(latest.get("pv", 1))
+                # 告警 4: 访客到支付用户转化率异常（UV → pay_users < 1%）
+                uv = int(latest.get("uv", 0))
                 pay_users_val = int(latest.get("pay_users", 0))
-                if pv > 100 and pay_users_val / pv < 0.01:
+                if uv > 100 and pay_users_val / uv < 0.01:
                     alerts.append({
                         "window_start": latest["window_start"],
                         "window_end": latest["window_end"],
                         "alert_type": "low_conversion",
                         "alert_level": "WARNING",
-                        "alert_message": f"支付转化率 < 1%: PV={pv}, pay_users={pay_users_val}",
+                        "alert_message": f"访客支付转化率 < 1%: UV={uv}, pay_users={pay_users_val}",
                         "metric_name": "conversion_rate",
-                        "metric_value": pay_users_val / pv,
+                        "metric_value": pay_users_val / uv,
                     })
 
                 # 写入告警
@@ -130,7 +130,7 @@ def main():
                     print(f"  ALERT [{alert['alert_level']}]: {alert['alert_message']}")
 
                 if not alerts:
-                    print(f"  OK: window {latest['window_start']}, pay_amount={latest.get('pay_amount', 0)}, pay_users={latest.get('pay_users', 0)}, pv={latest.get('pv', 0)}")
+                    print(f"  OK: window {latest['window_start']}, pay_amount={latest.get('pay_amount', 0)}, pay_users={latest.get('pay_users', 0)}, uv={latest.get('uv', 0)}")
 
         except Exception as e:
             print(f"  Error: {e}")

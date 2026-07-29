@@ -18,6 +18,5 @@ create_topic ads_realtime_overview
 create_topic ads_product_rank
 create_topic ads_channel_funnel
 create_topic ads_category_rank
-create_topic ads_realtime_alert
 
 docker exec rtdw_kafka kafka-topics --bootstrap-server kafka:29092 --list

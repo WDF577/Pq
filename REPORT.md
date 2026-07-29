@@ -1,282 +1,172 @@
 # 电商用户行为实时数仓项目报告
 
-## 一、项目背景
+## 1. 项目背景
 
-随着电商业务的发展，平台每天会产生大量用户行为数据，例如页面浏览、商品点击、加入购物车、下单、支付等。传统离线数仓通常以天为单位统计指标，适合历史分析和周期性报表，但无法及时反映业务实时变化。
+项目以电商用户浏览、加购、下单和支付行为为例，构建一个可在本地运行的实时数据处理 Demo。目标不是模拟生产集群规模，而是验证数据从事件产生到指标展示的完整过程，并能够解释每层粒度、口径和技术边界。
 
-在实际业务中，运营人员往往需要实时关注以下问题：
+## 2. 技术架构
 
-- 当前平台访问量是否正常。
-- 哪些商品正在快速成交。
-- 用户从浏览到支付的转化是否稳定。
-- 不同渠道带来的访问和成交效果如何。
-- 支付金额是否出现异常波动。
-
-因此，本项目设计并实现一套电商用户行为实时数仓，通过 Kafka、Flink SQL、MySQL、ClickHouse 等组件完成实时数据接入、清洗、维表关联、窗口聚合和结果查询。
-
-## 二、项目目标
-
-本项目主要目标如下：
-
-1. 模拟电商用户实时行为日志。
-2. 使用 Kafka 接收持续产生的行为数据。
-3. 使用 Flink SQL 对实时数据进行清洗、转换和聚合。
-4. 使用 MySQL 存储商品、店铺、地区等维度数据。
-5. 使用 ClickHouse 保存清洗后的明细数据和实时指标结果。
-6. 按照 ODS、DWD、DWS、ADS 的方式组织实时数仓分层。
-7. 输出实时 PV、UV、支付金额、商品排行、转化漏斗等指标。
-
-## 三、技术选型
-
-| 模块 | 技术 | 说明 |
+| 组件 | 版本 | 职责 |
 | --- | --- | --- |
-| 数据模拟 | Python | 持续生成用户行为 JSON 数据 |
-| 消息队列 | Kafka | 接收实时日志流，解耦数据生产和消费 |
-| 实时计算 | Flink SQL | 实现实时清洗、维表关联、窗口聚合 |
-| 维表存储 | MySQL | 存储商品、店铺、地区等维表 |
-| 分析存储 | ClickHouse | 存储明细数据和指标结果 |
-| 环境编排 | Docker Compose | 快速启动本地演示环境 |
+| Kafka | Confluent 7.6.1 | ODS、DWD 和 ADS 消息传输 |
+| Flink SQL | 1.18 | 实时清洗、维表关联和窗口聚合 |
+| MySQL | 8.0 | 商品、店铺、地区维表 |
+| ClickHouse | 24.3 | DWD 明细、ADS 指标和告警 |
+| Python | 3.x | 事件生成、批量装载、质量报告和告警 |
+| Streamlit | - | 指标展示 |
+| Docker Compose | - | 6 个本地服务编排 |
 
-选择这些技术的原因：
+主链路：
 
-- Kafka 适合承接高吞吐实时日志。
-- Flink 适合流式计算，支持事件时间和窗口聚合。
-- Flink SQL 编写成本低，便于理解实时处理逻辑。
-- MySQL 适合模拟业务系统维表。
-- ClickHouse 查询性能较好，适合实时分析结果查询。
-- Docker Compose 可以降低本地环境搭建成本。
-
-## 四、总体架构
-
-```mermaid
-flowchart LR
-    A["Python 用户行为模拟"] --> B["Kafka Topic: ods_user_behavior"]
-    B --> C["Flink SQL ODS 源表"]
-    C --> D["DWD 明细清洗"]
-    E["MySQL 维表"] --> D
-    D --> F["DWS 实时汇总"]
-    D --> G["Kafka Topic: dwd_user_behavior"]
-    F --> H["Kafka Topic: ads_*"]
-    G --> J["Python 装载脚本"]
-    H --> J
-    J --> K["ClickHouse 明细表/指标表"]
-    K --> I["SQL 查询分析"]
+```text
+Python -> Kafka ODS -> Flink SQL -> Kafka DWD/ADS
+                                -> Python Batch Loader -> ClickHouse -> Streamlit
+                    MySQL dimensions -----^
 ```
 
-架构说明：
+## 3. 数据模型
 
-1. Python 脚本持续生成用户行为数据。
-2. Kafka 负责接收实时行为日志。
-3. Flink SQL 从 Kafka 中读取 ODS 原始数据。
-4. Flink SQL 关联 MySQL 维表，补充商品、店铺、品类等信息。
-5. 清洗后的明细数据先写入 Kafka 结果 Topic。
-6. Flink SQL 基于事件时间窗口计算实时指标。
-7. Python 装载脚本消费 Kafka 结果 Topic，并写入 ClickHouse，供查询分析使用。
+### 3.1 DWD 事实表
 
-## 五、业务数据设计
+`dwd_user_behavior` 的粒度是一条用户行为事件，业务键为 `event_id`。记录用户、商品、店铺、渠道、金额和事件时间，并补充商品名、品类、店铺名、省份和城市。
 
-### 5.1 用户行为事件
+### 3.2 维表
 
-用户行为事件是项目的核心事实数据，每条记录表示用户的一次行为。
+- `dim_product(product_id, product_name, category_id, category_name, price)`
+- `dim_shop(shop_id, shop_name, region_id)`
+- `dim_region(region_id, province, city)`
 
-| 字段 | 说明 | 示例 |
-| --- | --- | --- |
-| `event_id` | 事件唯一 ID | `uuid` |
-| `user_id` | 用户 ID | `10086` |
-| `product_id` | 商品 ID | `1001` |
-| `shop_id` | 店铺 ID | `1` |
-| `event_type` | 行为类型 | `view`、`cart`、`order`、`pay` |
-| `channel` | 访问渠道 | `app`、`h5`、`wechat`、`search`、`ad` |
-| `amount` | 行为金额 | `199.00` |
-| `event_time` | 事件时间 | `2026-06-29 20:30:00` |
+维表通过 processing-time JDBC Temporal Join 关联。当前未实现 SCD2、CDC 和 Lookup Cache。
 
-### 5.2 维表设计
+### 3.3 ADS 粒度
 
-本项目使用 MySQL 保存维表数据。
-
-`dim_product` 商品维表：
-
-| 字段 | 说明 |
+| 表 | 粒度 |
 | --- | --- |
-| `product_id` | 商品 ID |
-| `product_name` | 商品名称 |
-| `category_id` | 品类 ID |
-| `category_name` | 品类名称 |
-| `price` | 商品价格 |
+| `ads_realtime_overview` | 1 分钟窗口 |
+| `ads_product_rank` | 5 分钟窗口 + 商品 |
+| `ads_category_rank` | 5 分钟窗口 + 品类 |
+| `ads_channel_funnel` | 1 分钟窗口 + 渠道 |
 
-`dim_shop` 店铺维表：
+## 4. 实时计算
 
-| 字段 | 说明 |
-| --- | --- |
-| `shop_id` | 店铺 ID |
-| `shop_name` | 店铺名称 |
-| `region_id` | 地区 ID |
+### 4.1 时间语义
 
-`dim_region` 地区维表：
+Flink 使用事件时间，并设置 5 秒 Watermark。有限批次生成器按事件时间递增发送，并注入默认 3 秒乱序抖动，避免用“跨 2 小时完全随机乱序”制造与 Watermark 配置不匹配的迟到数据。1 分钟和 5 分钟 TUMBLE 窗口互不重叠，适合固定周期运营指标。
 
-| 字段 | 说明 |
-| --- | --- |
-| `region_id` | 地区 ID |
-| `province` | 省份 |
-| `city` | 城市 |
+### 4.2 DWD 清洗
 
-## 六、数仓分层设计
+过滤规则：
 
-### 6.1 ODS 原始层
+- `event_id IS NOT NULL`
+- `user_id IS NOT NULL`
+- `event_type IN ('view','cart','order','pay')`
 
-ODS 层保存原始实时日志。本项目中，ODS 层对应 Kafka Topic `ods_user_behavior`。该层尽量保留数据原貌，不做复杂加工，方便后续追溯。
+商品或店铺维度未命中时，LEFT JOIN 保留明细，由质量报告统计命中率。
 
-### 6.2 DWD 明细层
+### 4.3 指标口径
 
-DWD 层对 ODS 数据进行清洗和补充，主要处理内容包括：
+- PV：`view` 事件数
+- UV：发生 `view` 的去重用户数
+- 加购/下单/支付用户：对应行为的去重用户数
+- 支付金额：`pay` 事件金额总和
+- 商品/品类指标：5 分钟支付聚合
+- 渠道指标：1 分钟各阶段去重用户数
 
-- 过滤空事件 ID。
-- 过滤空用户 ID。
-- 过滤非法行为类型。
-- 将字符串时间转换为事件时间。
-- 关联商品维表，补充商品名称和品类。
-- 关联店铺维表，补充店铺名称。
+商品表不包含 Flink TopN，Top 10 在看板侧选择。渠道指标不构成严格路径漏斗。
 
-清洗后的明细数据先写入 Kafka Topic `dwd_user_behavior`，再由 `scripts/load_kafka_to_clickhouse.py` 写入 ClickHouse 表 `dwd_user_behavior`。
+## 5. 存储装载
 
-### 6.3 DWS 汇总层
+Flink 将 1 个 DWD 和 4 个 ADS 结果写入 Kafka。Python Loader 按目标表缓存记录，批量使用 ClickHouse HTTP `JSONEachRow` 写入；批次成功后同步提交 Kafka offset。
 
-DWS 层面向业务主题进行实时聚合。本项目中的聚合逻辑主要包括：
+相较逐行写入：
 
-- 按 1 分钟窗口统计整体访问和交易情况。
-- 按 5 分钟窗口统计商品支付排行。
-- 按渠道分析访问、加购、下单、支付情况。
+- 减少 HTTP 请求次数
+- 降低 ClickHouse 小批写入压力
+- 避免自动提交导致消息未落库却已推进 offset
 
-### 6.4 ADS 应用层
+局限：写入成功、提交 offset 失败时仍可能重复，因此不是端到端 Exactly Once。
 
-ADS 层保存最终可查询的指标结果。本项目中主要包括：
+## 6. 可视化与告警
 
-- `ads_realtime_overview`：实时概览指标表。
-- `ads_product_rank`：商品支付排行指标表。
+Streamlit 展示：
 
-这些表可直接用于 SQL 查询，也可以继续接入可视化工具。
+- 最新 1 分钟 PV、UV、阶段用户和支付金额
+- 支付金额趋势
+- 最新 5 分钟窗口商品 Top 10
+- 最新 5 分钟窗口品类分布
+- 最新 1 分钟窗口渠道阶段人数
+- ClickHouse 告警记录
 
-## 七、核心指标口径
+ADS 查询使用 `FINAL`，避免 ReplacingMergeTree 后台尚未合并时展示重复窗口版本。
 
-| 指标 | 计算口径 |
-| --- | --- |
-| PV | 窗口内全部行为记录数 |
-| UV | 窗口内去重用户数 |
-| 加购人数 | 窗口内发生 `cart` 行为的去重用户数 |
-| 下单人数 | 窗口内发生 `order` 行为的去重用户数 |
-| 支付人数 | 窗口内发生 `pay` 行为的去重用户数 |
-| 支付金额 | 窗口内 `pay` 行为的金额合计 |
-| 商品支付次数 | 某商品在窗口内发生支付行为的次数 |
-| 商品支付金额 | 某商品在窗口内支付金额合计 |
+## 7. 数据质量
 
-## 八、模块实现说明
+质量脚本检查：
 
-### 8.1 数据生成模块
+1. DWD 和 4 类 ADS 核心表非空
+2. 空事件 ID
+3. 非法事件类型
+4. 重复事件 ID
+5. 商品、店铺、地区维表命中率
+6. `UV <= PV`
 
-文件：`scripts/generate_mock_events.py`
+ODS 保存在 Kafka，ClickHouse 质量报告不估算 ODS 行数，也不计算没有真实来源的清洗率。
 
-该模块持续生成模拟用户行为数据，并写入 Kafka Topic `ods_user_behavior`。脚本会随机生成用户 ID、商品 ID、店铺 ID、行为类型、访问渠道和事件时间。
+## 8. 实际问题与处理
 
-行为类型包括：
+### Python Kafka 客户端兼容
 
-- `view`：浏览
-- `cart`：加购
-- `order`：下单
-- `pay`：支付
+Python 3.12 环境下原客户端存在兼容问题，切换到 `confluent-kafka`，同时调整 Producer 和 Consumer API。
 
-### 8.2 维表初始化模块
+### Flink Slot 不足
 
-文件：`scripts/create_mysql_dim.sql`
+第 5 个 Job 无法运行时，通过 Flink Web UI 和日志定位到可用 Slot 不足，调整 TaskManager Slot 后重新提交并验证 5 个 Job 状态。
 
-该模块创建并初始化 MySQL 维表，包括商品、店铺、地区三类基础数据。Flink SQL 后续会通过 JDBC 方式关联这些维表。
+### ClickHouse 返回类型
 
-### 8.3 ClickHouse 建表模块
+ClickHouse HTTP `JSONEachRow` 中数值字段可能以字符串进入 Pandas，导致 Plotly 渲染异常。Dashboard 查询层增加数值转换。
 
-文件：`scripts/create_clickhouse_tables.sql`
+### 口径修正
 
-该模块创建 DWD 明细表和 ADS 指标表，用于保存实时处理结果。
+早期 `COUNT(*)` 把全部行为统计为 PV。复核指标定义后改为只统计 `view`，并把低转化告警统一为 `pay_users / uv`。
 
-### 8.4 Flink ODS 源表模块
+### 事件时间顺序
 
-文件：`flink-sql/01_create_source_tables.sql`
+早期生成器把过去 2 小时事件完全随机发送，而 Watermark 只允许 5 秒，导致大量窗口事件被判定为迟到数据。有限批次模式改为按事件时间递增发送并注入 3 秒抖动，使模拟数据与 Watermark 设计一致。
 
-该模块定义 Kafka 源表和 MySQL 维表。Kafka 源表负责读取原始用户行为日志，MySQL 维表负责提供商品、店铺等维度信息。
+## 9. 验证方式
 
-### 8.5 Flink DWD 明细处理模块
+静态检查：
 
-文件：`flink-sql/02_create_dwd_tables.sql`
+- Python `py_compile`
+- Shell `bash -n`
+- Docker Compose `config`
+- 文档与 SQL 口径检索
 
-该模块将 Kafka 原始数据转换为结构化明细数据，并通过维表关联补充业务字段。处理后的明细结果写入 Kafka Topic `dwd_user_behavior`。
+运行验证：
 
-### 8.6 Flink ADS 指标计算模块
+- 6 个容器运行
+- 5 个 Flink Job 正常
+- Kafka 6 个 Topic
+- ClickHouse 5 类核心结果有数据
+- 质量报告全部必选项通过
 
-文件：`flink-sql/03_create_dws_ads_tables.sql`
+## 10. 已知限制和后续演进
 
-该模块基于 DWD 明细数据进行窗口聚合，生成实时概览指标和商品排行指标。
+- 配置 Flink Checkpoint、状态后端和重启策略
+- Kafka 增加分区、副本和监控
+- 使用成熟 Connector 或幂等设计增强一致性
+- 为业务事件增加 `order_id`、`session_id` 并实现严格漏斗
+- 维表接入 CDC，并根据历史分析需求实现 SCD2
+- 将指标口径、血缘和质量规则纳入元数据治理
 
-### 8.7 查询模块
+## 11. 面试表述原则
 
-文件：`flink-sql/04_queries.sql`
+该项目应被描述为“完整链路可运行的个人学习项目”，重点展示：
 
-该模块提供 ClickHouse 查询 SQL，用于查看实时概览、商品排行和渠道转化结果。
+- 能说明事实粒度和指标口径
+- 能解释各组件为什么存在
+- 能从 Topic、Job 和表逐层排障
+- 能识别 TopN、漏斗、维表版本和一致性边界
 
-## 九、运行流程
-
-完整运行流程如下：
-
-1. 启动 Docker Compose 环境。
-2. 初始化 MySQL 维表。
-3. 初始化 ClickHouse 结果表。
-4. 安装 Python 依赖。
-5. 启动 Python 模拟数据脚本。
-6. 在 Flink SQL Client 中执行建表和计算 SQL。
-7. 在 ClickHouse 中查询结果。
-
-运行成功后，Flink Web 页面应能看到运行中的任务，ClickHouse 中应能查询到明细数据和聚合指标。
-
-## 十、结果验收
-
-| 验收项 | 预期结果 |
-| --- | --- |
-| Kafka 数据接入 | Python 脚本持续输出事件，Kafka Topic 有数据 |
-| MySQL 维表 | 商品、店铺、地区维表能正常查询 |
-| ClickHouse 建表 | DWD 和 ADS 表创建成功 |
-| Flink 任务 | Flink SQL 任务正常运行 |
-| DWD 明细 | `dwd_user_behavior` 有清洗后的行为明细 |
-| ADS 概览 | `ads_realtime_overview` 有 PV、UV、支付金额等指标 |
-| 商品排行 | `ads_product_rank` 有商品支付次数和金额统计 |
-
-## 十一、项目特点
-
-- 覆盖实时数据接入、实时计算、结果查询的完整链路。
-- 使用 ODS、DWD、DWS、ADS 分层方式组织数据。
-- 使用 Flink SQL 实现主要逻辑，便于阅读和学习。
-- 引入 MySQL 维表关联，贴近实际业务处理方式。
-- 使用 ClickHouse 保存结果，便于后续分析查询。
-- 使用 Docker Compose 编排环境，降低部署复杂度。
-
-## 十二、存在的限制
-
-本项目用于学习和演示，和生产环境相比还有一些简化：
-
-- 模拟数据规模较小，没有做高并发压测。
-- 维表数据是静态初始化，没有接入 CDC。
-- Flink Connector 需要根据实际环境补充 jar。
-- 没有配置完整的 Checkpoint、状态后端和故障恢复策略。
-- 没有接入可视化看板。
-
-## 十三、扩展方向
-
-后续可以从以下方向扩展：
-
-1. 接入 Debezium 或 Canal，实现 MySQL 维表实时同步。
-2. 增加 Redis 维表缓存，提高维表查询性能。
-3. 接入 DataEase、Superset 或 Grafana，展示实时大屏。
-4. 增加用户维表，统计用户画像和人群指标。
-5. 增加地区维度，统计不同省市访问和成交情况。
-6. 使用 Doris、Paimon、Hudi 等组件扩展实时湖仓能力。
-7. 配置 Flink Checkpoint 和状态后端，提高任务容错能力。
-
-## 十四、总结
-
-本项目完成了一套电商用户行为实时数仓的基础实现，覆盖了实时日志模拟、Kafka 数据接入、Flink SQL 实时计算、MySQL 维表关联、ClickHouse 指标查询等关键环节。通过本项目，可以理解实时数仓的基本架构、实时计算链路、数仓分层思想以及常见电商实时指标的计算方式。
+不应描述为生产高可用集群或已经具备严格业务交易语义。

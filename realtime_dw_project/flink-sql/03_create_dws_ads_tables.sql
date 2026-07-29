@@ -65,8 +65,8 @@ INSERT INTO ads_realtime_overview_kafka
 SELECT
   CAST(window_start AS STRING) AS window_start,
   CAST(window_end AS STRING) AS window_end,
-  COUNT(*) AS pv,
-  COUNT(DISTINCT user_id) AS uv,
+  SUM(CASE WHEN event_type = 'view' THEN 1 ELSE 0 END) AS pv,
+  COUNT(DISTINCT CASE WHEN event_type = 'view' THEN user_id END) AS uv,
   COUNT(DISTINCT CASE WHEN event_type = 'cart' THEN user_id END) AS cart_users,
   COUNT(DISTINCT CASE WHEN event_type = 'order' THEN user_id END) AS order_users,
   COUNT(DISTINCT CASE WHEN event_type = 'pay' THEN user_id END) AS pay_users,

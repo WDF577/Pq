@@ -48,7 +48,7 @@ docker exec -i rtdw_clickhouse clickhouse-client --password clickhouse --multiqu
 
 echo "8. 提交 Flink SQL 任务"
 bash scripts/run_flink_sql.sh
-docker exec rtdw_flink_jobmanager //opt/flink/bin/flink list
+MSYS_NO_PATHCONV=1 docker exec rtdw_flink_jobmanager /opt/flink/bin/flink list
 
 echo "9. 生成测试数据（10万条，覆盖过去2小时，含脏数据）"
 python3 scripts/generate_mock_events.py --count 100000 --interval 0 --time-span-minutes 120
@@ -61,6 +61,7 @@ python3 scripts/load_kafka_to_clickhouse.py --group-id demo_loader --max-message
 
 echo "12. 查询并验收结果"
 bash scripts/verify_result.sh
+python3 scripts/quality_report.py
 
 echo
 echo "演示完成。可以打开 Flink 页面查看任务：http://localhost:8081"

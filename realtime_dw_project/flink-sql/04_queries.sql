@@ -1,7 +1,7 @@
 -- ClickHouse 查询示例
 
 SELECT *
-FROM ads_realtime_overview
+FROM ads_realtime_overview FINAL
 ORDER BY window_start DESC
 LIMIT 20;
 
@@ -12,7 +12,7 @@ SELECT
   category_name,
   pay_count,
   pay_amount
-FROM ads_product_rank
+FROM ads_product_rank FINAL
 ORDER BY window_start DESC, pay_amount DESC
 LIMIT 20;
 

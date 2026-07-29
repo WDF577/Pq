@@ -1,7 +1,7 @@
 SELECT count() AS dwd_rows FROM dwd_user_behavior;
 
 SELECT *
-FROM ads_realtime_overview
+FROM ads_realtime_overview FINAL
 ORDER BY window_start DESC
 LIMIT 10;
 
@@ -12,7 +12,7 @@ SELECT
   category_name,
   pay_count,
   pay_amount
-FROM ads_product_rank
+FROM ads_product_rank FINAL
 ORDER BY window_start DESC, pay_amount DESC
 LIMIT 10;
 
@@ -23,7 +23,7 @@ SELECT
   pay_count,
   pay_users,
   pay_amount
-FROM ads_category_rank
+FROM ads_category_rank FINAL
 ORDER BY window_start DESC, pay_amount DESC
 LIMIT 10;
 
@@ -35,7 +35,7 @@ SELECT
   cart_users,
   order_users,
   pay_users
-FROM ads_channel_funnel
+FROM ads_channel_funnel FINAL
 ORDER BY window_start DESC, view_users DESC
 LIMIT 10;
 

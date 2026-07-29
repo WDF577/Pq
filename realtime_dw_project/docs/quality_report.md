@@ -1,42 +1,50 @@
 # Data Quality Report
-> Generated: 2026-07-06 16:24:06
+
+> Generated: 2026-07-29 18:54:45
+
+## Scope
+
+The ODS layer is stored in Kafka, so this report does not infer an ODS row count from DWD. It validates the ClickHouse DWD/ADS serving layer only.
 
 ## Volume Overview
-| Layer | Table | Rows |
-|-------|-------|------|
-| ODS | ods_user_behavior | ~249,980 |
-| DWD | dwd_user_behavior | 249,980 |
-| ADS | ads_realtime_overview | 93 |
-| ADS | ads_product_rank | 254 |
-| ADS | ads_category_rank | 60 |
-| ADS | ads_channel_funnel | 398 |
-| ADS | ads_realtime_alert | 3 |
 
-## Cleaning Statistics
-| Metric | Value |
-|--------|-------|
-| DWD total rows | 249,980 |
-| null event_id in DWD | 0 |
-| null user_id in DWD | 0 |
-| invalid event_type in DWD | 0 |
-| Cleaning rate | 100.0% |
+| Layer | Table | Rows |
+| --- | --- | ---: |
+| DWD | dwd_user_behavior | 98,020 |
+| ADS | ads_realtime_overview | 120 |
+| ADS | ads_product_rank | 2,082 |
+| ADS | ads_category_rank | 259 |
+| ADS | ads_channel_funnel | 600 |
+| ADS | ads_realtime_alert | 0 |
 
 ## Dimension Join Quality
-| Metric | Value |
-|--------|-------|
-| Rows with province/city | 249,038 |
-| Region dim hit rate | 99.6% |
 
-## Acceptance Checklist (5/7 PASS)
-| ODS | target: >= 100,000 | actual: 249,980 | PASS |
-| DWD | target: >= 90,000 | actual: 249,980 | PASS |
-| overview | target: >= 100 | actual: 93 | FAIL |
-| product_rank | target: >= 100 | actual: 254 | PASS |
-| category_rank | target: >= 100 | actual: 60 | FAIL |
-| channel_funnel | target: >= 100 | actual: 398 | PASS |
-| province_rate | target: >= 80 | actual: 99.6231698535883 | PASS |
+| Dimension | Hit rate |
+| --- | ---: |
+| Product | 99.02% |
+| Shop | 99.52% |
+| Region | 99.52% |
 
-## Issues Encountered
-1. kafka-python 2.0.2 incompatible with Python 3.12 — fixed by switching to confluent-kafka.
-2. Git Bash MSYS path conversion breaks docker exec paths — fixed with MSYS_NO_PATHCONV=1 and double-slash prefix.
-3. MySQL port 3306 conflict with local MySQL — fixed by remapping to 3307 in docker-compose.yml.
+## Acceptance Checklist (12/12 PASS, 0 FAIL)
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| DWD has data | PASS | rows=98,020 |
+| event_id is not empty | PASS | invalid=0 |
+| event_type is valid | PASS | invalid=0 |
+| event_id is unique | PASS | duplicate keys=0 |
+| product dimension hit rate | PASS | 99.02% |
+| shop dimension hit rate | PASS | 99.52% |
+| region dimension hit rate | PASS | 99.52% |
+| overview output has data | PASS | rows=120 |
+| product output has data | PASS | rows=2,082 |
+| category output has data | PASS | rows=259 |
+| channel output has data | PASS | rows=600 |
+| UV does not exceed PV | PASS | invalid windows=0 |
+
+## Interpretation Notes
+
+- `pv` counts only `view` events; `uv` counts distinct users with a `view` event.
+- Product/category tables are 5-minute payment aggregates. The dashboard selects Top 10.
+- Channel output compares distinct users at each stage. Because mock events do not carry an order/session path, it is not a strict user-path funnel.
+- The alert table is optional and is not included in the pass count.

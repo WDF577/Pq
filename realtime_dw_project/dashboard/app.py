@@ -39,22 +39,34 @@ def query(sql):
 
 @st.cache_data(ttl=10)
 def load_overview():
-    return query("SELECT * FROM ads_realtime_overview ORDER BY window_start DESC LIMIT 50")
+    return query("SELECT * FROM ads_realtime_overview FINAL ORDER BY window_start DESC LIMIT 50")
 
 
 @st.cache_data(ttl=10)
 def load_product_rank():
-    return query("SELECT * FROM ads_product_rank ORDER BY window_start DESC, pay_amount DESC LIMIT 100")
+    return query(
+        "SELECT * FROM ads_product_rank FINAL "
+        "WHERE window_start = (SELECT max(window_start) FROM ads_product_rank) "
+        "ORDER BY pay_amount DESC"
+    )
 
 
 @st.cache_data(ttl=10)
 def load_category_rank():
-    return query("SELECT * FROM ads_category_rank ORDER BY window_start DESC, pay_amount DESC LIMIT 50")
+    return query(
+        "SELECT * FROM ads_category_rank FINAL "
+        "WHERE window_start = (SELECT max(window_start) FROM ads_category_rank) "
+        "ORDER BY pay_amount DESC"
+    )
 
 
 @st.cache_data(ttl=10)
 def load_channel_funnel():
-    return query("SELECT * FROM ads_channel_funnel ORDER BY window_start DESC LIMIT 100")
+    return query(
+        "SELECT * FROM ads_channel_funnel FINAL "
+        "WHERE window_start = (SELECT max(window_start) FROM ads_channel_funnel) "
+        "ORDER BY view_users DESC"
+    )
 
 
 @st.cache_data(ttl=10)
@@ -114,7 +126,7 @@ with col_right:
     st.subheader("Top 10 Products by Pay Amount")
     pr = load_product_rank()
     if not pr.empty:
-        top10 = pr.groupby("product_name")["pay_amount"].sum().nlargest(10).reset_index()
+        top10 = pr.nlargest(10, "pay_amount")[["product_name", "pay_amount"]]
         fig = px.bar(top10, x="pay_amount", y="product_name", orientation="h",
                       labels={"pay_amount": "Total Pay Amount", "product_name": ""})
         fig.update_layout(height=350, margin=dict(l=20, r=20, t=10, b=20))
@@ -129,8 +141,7 @@ with col_left2:
     st.subheader("Category Sales Distribution")
     cr = load_category_rank()
     if not cr.empty:
-        cat_agg = cr.groupby("category_name")["pay_amount"].sum().reset_index()
-        fig = px.pie(cat_agg, values="pay_amount", names="category_name",
+        fig = px.pie(cr, values="pay_amount", names="category_name",
                       labels={"pay_amount": "Pay Amount", "category_name": "Category"})
         fig.update_layout(height=350, margin=dict(l=20, r=20, t=10, b=20))
         st.plotly_chart(fig, use_container_width=True)
@@ -138,16 +149,15 @@ with col_left2:
         st.info("No category rank data yet.")
 
 with col_right2:
-    st.subheader("Channel Conversion Funnel")
+    st.subheader("Channel Stage Comparison (latest 1-min window)")
     cf = load_channel_funnel()
     if not cf.empty:
-        ch_agg = cf.groupby("channel")[["view_users", "cart_users", "order_users", "pay_users"]].sum()
         fig = go.Figure()
-        channels = ch_agg.index.tolist()
+        channels = cf["channel"].tolist()
         for col_name, color in [("view_users", "#636EFA"), ("cart_users", "#00CC96"),
                                   ("order_users", "#AB63FA"), ("pay_users", "#FFA15A")]:
             fig.add_trace(go.Bar(name=col_name.replace("_users", ""), y=channels,
-                                  x=ch_agg[col_name], orientation="h", marker_color=color))
+                                  x=cf[col_name], orientation="h", marker_color=color))
         fig.update_layout(barmode="group", height=350, margin=dict(l=20, r=20, t=10, b=20))
         st.plotly_chart(fig, use_container_width=True)
     else:

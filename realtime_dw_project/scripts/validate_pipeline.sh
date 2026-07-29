@@ -30,7 +30,7 @@ docker exec -i rtdw_clickhouse clickhouse-client --password clickhouse --multiqu
 
 echo "8. submit flink sql jobs"
 bash scripts/run_flink_sql.sh
-docker exec rtdw_flink_jobmanager /opt/flink/bin/flink list
+MSYS_NO_PATHCONV=1 docker exec rtdw_flink_jobmanager /opt/flink/bin/flink list
 
 echo "9. generate test events"
 python3 scripts/generate_mock_events.py --count 200 --interval 0.01
@@ -41,3 +41,4 @@ python3 scripts/load_kafka_to_clickhouse.py --group-id validation_loader --max-m
 
 echo "11. verify clickhouse results"
 bash scripts/verify_result.sh
+python3 scripts/quality_report.py

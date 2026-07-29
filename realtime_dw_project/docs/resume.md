@@ -1,48 +1,26 @@
-# 项目经历：基于 Kafka + Flink + ClickHouse 的电商用户行为实时数仓
+# 简历项目描述（与当前实现一致）
 
-## 项目概述
+## 项目名称
 
-基于 Docker Compose 搭建 Kafka、Flink、MySQL、ClickHouse 六节点实时数仓环境，模拟生成 10 万+ 条电商用户行为日志，覆盖浏览、加购、下单、支付等事件。使用 Flink SQL 实现 ODS → DWD → DWS → ADS 四层数仓架构，产出实时 PV/UV、支付指标、商品排行、品类排行、渠道转化漏斗等核心业务指标，并通过 Streamlit 构建运营监控看板。
+基于 Kafka + Flink + ClickHouse 的电商用户行为实时数仓
 
 ## 技术栈
 
-| 组件 | 版本 | 用途 |
-|------|------|------|
-| Kafka | Confluent 7.6.1 | 实时消息队列，承载 ODS 日志和 Flink 输出 |
-| Flink | 1.18 | SQL 流式计算引擎，实时清洗+维表关联+窗口聚合 |
-| MySQL | 8.0 | 存储 100 个商品、20 个店铺、20 个地区维表 |
-| ClickHouse | 24.3 | 分析型数据库，存储 DWD 明细和 ADS 指标 |
-| Python | 3.x | 模拟数据生成、Kafka→CH 装载、告警生成、Streamlit 看板 |
-| Docker Compose | - | 一键编排全部 6 个服务 |
+Kafka / Flink SQL / ClickHouse / MySQL / Docker Compose / Python
 
-## 个人职责
+## 推荐描述
 
-- 基于 Docker Compose 搭建 Kafka、Flink、MySQL、ClickHouse 六节点实时数仓环境，实现一键启动/停止。
-- 使用 Python + confluent-kafka 开发 10 万+ 条电商用户行为模拟数据生成器，包含浏览、加购、下单、支付 4 种事件，并按 70:15:10:5 权重分布，注入 3% 脏数据模拟真实场景。
-- 使用 Flink SQL 对 ODS 原始行为日志进行实时清洗（过滤空 ID、非法 event_type），通过 Temporal Table Join 关联 MySQL 商品/店铺/地区维表，DWD 明细层实现字段补全，维表命中率 98%+。
-- 基于 Flink SQL TUMBLE 窗口实现 4 类 ADS 指标：1 分钟实时概览（PV/UV/支付指标）、5 分钟商品支付排行、5 分钟品类销售排行、1 分钟渠道转化漏斗（4 级转化率）。
-- 设计实时异常告警机制：支付归零、支付骤降（< 50% 均值）、转化率异常等 4 种告警规则，基于 ClickHouse 查询自动生成。
-- 使用 Streamlit + Plotly 构建运营监控看板：KPI 卡片、支付趋势折线图、商品排行柱状图、品类饼图、渠道漏斗横向柱状图、告警表格。
-- 开发数据质量报告脚本，自动统计 ODS/DWD 数据量、清洗率、维表命中率等质量指标。
+- 基于 Docker Compose 搭建 ZooKeeper、Kafka、MySQL、ClickHouse 及 Flink JobManager/TaskManager 共 6 个容器化服务，构建 Python -> Kafka -> Flink -> ClickHouse -> Streamlit 实时链路，并按 ODS -> DWD -> ADS 组织数据加工。
+- 设计 ODS、DWD 与 4 类 ADS 共 6 个 Kafka Topic，拆分日志生成、Flink 实时计算和 ClickHouse 落库模块；可按 Topic 消息、Flink Job 状态及 ClickHouse 表行数逐层定位链路异常。
+- 使用事件时间、Watermark、MySQL JDBC Temporal Join 与 TUMBLE 窗口；DWD 层过滤空事件 ID、空用户 ID 和非法事件类型，并关联商品、店铺、地区 3 张维表。
+- 构建 1 分钟运营概览、5 分钟商品/品类支付聚合和 1 分钟渠道阶段人数 4 类指标；看板侧完成 Top 10 排行与 view -> cart -> order -> pay 阶段对比。
+- 在 ClickHouse 设计 DWD、4 类 ADS 及告警共 6 张表，通过 Streamlit 展示核心结果；补充空值、非法枚举、重复事件 ID、维表命中率及核心表非空校验。
 
-## 项目亮点
+## 不建议使用的说法
 
-1. **完整实时链路**：从数据生成 → Kafka → Flink → ClickHouse → 可视化，覆盖实时数仓全流程。
-2. **数仓分层规范**：严格遵循 ODS → DWD → DWS → ADS 四层架构，是面试高频考点。
-3. **Flink SQL 纯 SQL 实现**：所有实时计算逻辑（清洗、JOIN、窗口聚合）用 SQL 表达，降低理解门槛。
-4. **维表关联实战**：使用 Temporal Table Join 实现事实表与 MySQL 维表的实时关联。
-5. **脏数据处理**：注入 3% 脏数据，Flink DWD 层自动过滤，体现数据质量意识。
-6. **多维度指标**：覆盖实时概览、商品排行、品类排行、渠道漏斗、异常告警 5 类指标。
-7. **可观测性**：质量报告脚本 + Streamlit 看板，完整的数据可观测方案。
-
-## 关键数据
-
-| 指标 | 数值 |
-|------|------|
-| ODS 日志量 | 100,000+ |
-| DWD 清洗后 | 97,000+ |
-| 商品维表 | 100 条（10 品类 × 10 商品） |
-| 店铺维表 | 20 条 |
-| 地区维表 | 20 条 |
-| ADS 指标表 | 5 张 |
-| 容器数 | 6 个 |
+- “六节点集群”：当前是 6 个单机容器化服务，不是 6 台机器或高可用集群
+- “Flink TopN”：当前 Top 10 在 Streamlit 侧选择
+- “严格转化漏斗”：当前缺少订单/会话标识和事件序列
+- “完整四层物理数仓”：DWS 仅为逻辑窗口聚合，没有单独持久化
+- 固定累计行数：实际结果受运行次数、脏数据和消费组影响
+- “保证最新值”：ReplacingMergeTree 后台合并是异步的
