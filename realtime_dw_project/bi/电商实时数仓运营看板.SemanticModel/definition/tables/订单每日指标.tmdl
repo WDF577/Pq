@@ -1,0 +1,165 @@
+/// 按订单日期与渠道汇总的订单生命周期事实；一行代表一个自然日内一个渠道的订单、支付、取消与退款指标。
+table 订单每日指标
+	lineageTag: 1d562561-6d28-42eb-86ed-7955d81de77f
+
+	/// 当前筛选上下文内的订单总数。
+	measure 总订单数 = COALESCE(SUM('订单每日指标'[总订单数值]), 0)
+		formatString: #,##0
+		displayFolder: 订单生命周期\订单
+		lineageTag: f9fc59d4-52a0-46f5-aedd-7c83a7df10f6
+
+	/// 当前筛选上下文内已支付订单数。
+	measure 支付订单数 = COALESCE(SUM('订单每日指标'[支付订单数值]), 0)
+		formatString: #,##0
+		displayFolder: 订单生命周期\订单
+		lineageTag: f7195c3c-843d-4512-9246-d9982f0ff0d0
+
+	/// 当前筛选上下文内已取消订单数。
+	measure 取消订单数 = COALESCE(SUM('订单每日指标'[取消订单数值]), 0)
+		formatString: #,##0
+		displayFolder: 订单生命周期\订单
+		lineageTag: 1276e545-4c10-4a2a-abe5-c4fe619215cb
+
+	/// 当前筛选上下文内已退款订单数。
+	measure 退款订单数 = COALESCE(SUM('订单每日指标'[退款订单数值]), 0)
+		formatString: #,##0
+		displayFolder: 订单生命周期\订单
+		lineageTag: cc2a134c-8d32-48f3-b991-f1a99d04e23a
+
+	/// 当前筛选上下文内订单原始金额合计。
+	measure 订单金额 = COALESCE(SUM('订单每日指标'[订单金额值]), 0)
+		formatString: ¥#,##0.00
+		displayFolder: 订单生命周期\金额
+		lineageTag: 564a7ae5-d20e-40ea-a000-c318a0a81728
+
+	/// 当前筛选上下文内成功支付金额合计。
+	measure 支付金额 = COALESCE(SUM('订单每日指标'[支付金额值]), 0)
+		formatString: ¥#,##0.00
+		displayFolder: 订单生命周期\金额
+		lineageTag: 40304f8f-8394-463d-810e-44a7a0869ae1
+
+	/// 当前筛选上下文内退款金额合计。
+	measure 退款金额 = COALESCE(SUM('订单每日指标'[退款金额值]), 0)
+		formatString: ¥#,##0.00
+		displayFolder: 订单生命周期\金额
+		lineageTag: 7ef3f456-5e97-4031-91cf-87f06a136f51
+
+	/// 支付金额扣除退款金额后的净额。
+	measure 净支付金额 = [支付金额] - [退款金额]
+		formatString: ¥#,##0.00
+		displayFolder: 订单生命周期\金额
+		lineageTag: f118c1fe-ce0f-429e-94b7-6c556f26dde0
+
+	/// 支付订单数占总订单数的比例。
+	measure 支付率 = DIVIDE([支付订单数], [总订单数])
+		formatString: 0.0%
+		displayFolder: 订单生命周期\转化率
+		lineageTag: 4691f3f2-b79e-4c31-b248-292b01653915
+
+	/// 退款订单数占支付订单数的比例。
+	measure 退款率 = DIVIDE([退款订单数], [支付订单数])
+		formatString: 0.0%
+		displayFolder: 订单生命周期\转化率
+		lineageTag: 3851a105-a1e6-458a-95e0-1aa63f78ff39
+
+	/// 每笔已支付订单对应的平均支付金额。
+	measure 支付客单价 = DIVIDE([支付金额], [支付订单数])
+		formatString: ¥#,##0.00
+		displayFolder: 订单生命周期\效率
+		lineageTag: fe2c8a3c-9898-49ce-b9fc-fc92c90f46a7
+
+	/// 关联订单日期维度的外键。
+	column 订单日期
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd
+		isAvailableInMdx: false
+		lineageTag: 17fd5a71-7939-4e88-8ef7-90cb09adc961
+		summarizeBy: none
+		sourceColumn: order_date
+
+	/// 关联渠道维度的外键。
+	column 渠道键
+		dataType: string
+		isHidden
+		isNullable: false
+		isAvailableInMdx: false
+		lineageTag: f349be72-74c8-42b7-a5d5-a226e0310e67
+		summarizeBy: none
+		sourceColumn: channel
+
+	/// 源表按日按渠道汇总的订单数。
+	column 总订单数值
+		dataType: int64
+		isHidden
+		isAvailableInMdx: false
+		lineageTag: 7d172f33-b844-4817-8405-dd490be2ab62
+		summarizeBy: none
+		sourceColumn: total_orders
+
+	/// 源表按日按渠道汇总的支付订单数。
+	column 支付订单数值
+		dataType: int64
+		isHidden
+		isAvailableInMdx: false
+		lineageTag: 02168bb2-c6d0-44e6-a4f2-3115edd360cb
+		summarizeBy: none
+		sourceColumn: paid_orders
+
+	/// 源表按日按渠道汇总的取消订单数。
+	column 取消订单数值
+		dataType: int64
+		isHidden
+		isAvailableInMdx: false
+		lineageTag: 4211f38b-7b90-4c7a-88e5-7aaf3c728139
+		summarizeBy: none
+		sourceColumn: cancelled_orders
+
+	/// 源表按日按渠道汇总的退款订单数。
+	column 退款订单数值
+		dataType: int64
+		isHidden
+		isAvailableInMdx: false
+		lineageTag: 8e006100-4ef1-4918-a445-75d870da8b68
+		summarizeBy: none
+		sourceColumn: refunded_orders
+
+	/// 源表按日按渠道汇总的下单金额。
+	column 订单金额值
+		dataType: decimal
+		isHidden
+		formatString: ¥#,##0.00
+		isAvailableInMdx: false
+		lineageTag: dd433af7-3eba-4a75-9e9b-134975158be9
+		summarizeBy: none
+		sourceColumn: order_amount
+
+	/// 源表按日按渠道汇总的成功支付金额。
+	column 支付金额值
+		dataType: decimal
+		isHidden
+		formatString: ¥#,##0.00
+		isAvailableInMdx: false
+		lineageTag: fc1b4127-9655-44a9-b8e7-45bae0a3df64
+		summarizeBy: none
+		sourceColumn: paid_amount
+
+	/// 源表按日按渠道汇总的成功退款金额。
+	column 退款金额值
+		dataType: decimal
+		isHidden
+		formatString: ¥#,##0.00
+		isAvailableInMdx: false
+		lineageTag: 3fddc6f1-f4f3-49e6-9550-ea48acfd64aa
+		summarizeBy: none
+		sourceColumn: refund_amount
+
+	partition 订单每日指标 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT order_date, channel, total_orders, paid_orders, cancelled_orders, refunded_orders, order_amount, paid_amount, refund_amount FROM ads_order_daily FINAL WHERE is_deleted = 0 ORDER BY order_date, channel")
+				in
+				    Source

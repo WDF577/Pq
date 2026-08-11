@@ -1,0 +1,198 @@
+/// 一分钟滚动/滚动窗口的经营总览，一行代表一个一分钟窗口。
+table 实时经营总览
+	lineageTag: a96b39d0-bf2e-40dd-89af-866a0a5bcd8f
+
+	/// 当前时间筛选范围内，经营总览表可用的最新一分钟窗口开始时间。
+	measure 最新窗口时间 = MAX('实时经营总览'[窗口开始])
+		formatString: yyyy-MM-dd HH:mm
+		displayFolder: 窗口指标
+		lineageTag: e7d78d65-c2bb-4842-8c7e-fd3ed9719741
+
+	/// 当前时间筛选范围内，最新窗口之前的一个窗口开始时间。
+	measure 上一窗口时间 =
+			VAR _latest = [最新窗口时间]
+			RETURN
+			    MAXX(
+			        FILTER(ALLSELECTED('窗口时间'[窗口开始]), '窗口时间'[窗口开始] < _latest),
+			        '窗口时间'[窗口开始]
+			    )
+		formatString: yyyy-MM-dd HH:mm
+		isHidden
+		displayFolder: 窗口指标
+		lineageTag: 8bd39e2f-634a-41b7-bcd9-f8c8e22e5b09
+
+	/// 当前筛选范围最新一分钟窗口的页面浏览量。
+	measure '最新 PV' =
+			VAR _latest = [最新窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[PV]), TREATAS({_latest}, '窗口时间'[窗口开始]))
+		formatString: #,##0
+		displayFolder: 核心 KPI
+		lineageTag: 1756a3ad-1c9c-4d62-9188-0fc387af6e07
+
+	/// 当前筛选范围上一分钟窗口的页面浏览量。
+	measure '上一窗口 PV' =
+			VAR _previous = [上一窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[PV]), TREATAS({_previous}, '窗口时间'[窗口开始]))
+		formatString: #,##0
+		isHidden
+		displayFolder: 核心 KPI
+		lineageTag: d87b90c8-e41b-4eee-b7c0-ca64968fe1f2
+
+	/// 最新一分钟 PV 相比上一窗口的变化率。
+	measure 'PV 环比' = DIVIDE([最新 PV] - [上一窗口 PV], [上一窗口 PV])
+		formatString: +0.0%;-0.0%;0.0%
+		displayFolder: 核心 KPI
+		lineageTag: 17c8350d-6c99-43e9-b8f1-51b4ffca5bc8
+
+	/// 当前筛选范围最新一分钟窗口的独立访客数。
+	measure '最新 UV' =
+			VAR _latest = [最新窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[UV]), TREATAS({_latest}, '窗口时间'[窗口开始]))
+		formatString: #,##0
+		displayFolder: 核心 KPI
+		lineageTag: e252eb2e-8c2e-44fc-879d-1b9c0872fade
+
+	/// 当前筛选范围上一分钟窗口的独立访客数。
+	measure '上一窗口 UV' =
+			VAR _previous = [上一窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[UV]), TREATAS({_previous}, '窗口时间'[窗口开始]))
+		formatString: #,##0
+		isHidden
+		displayFolder: 核心 KPI
+		lineageTag: 905cd3ea-004a-4a0c-83f0-8f72540f5e13
+
+	/// 最新一分钟 UV 相比上一窗口的变化率。
+	measure 'UV 环比' = DIVIDE([最新 UV] - [上一窗口 UV], [上一窗口 UV])
+		formatString: +0.0%;-0.0%;0.0%
+		displayFolder: 核心 KPI
+		lineageTag: 7a8cf991-dc91-4790-a1dd-67e67f832765
+
+	/// 当前筛选范围最新一分钟窗口的支付用户数。
+	measure 最新支付用户 =
+			VAR _latest = [最新窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[支付用户]), TREATAS({_latest}, '窗口时间'[窗口开始]))
+		formatString: #,##0
+		displayFolder: 核心 KPI
+		lineageTag: 478a4c91-c4a0-4455-989f-66bbe825d9c5
+
+	/// 当前筛选范围上一分钟窗口的支付用户数。
+	measure 上一窗口支付用户 =
+			VAR _previous = [上一窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[支付用户]), TREATAS({_previous}, '窗口时间'[窗口开始]))
+		formatString: #,##0
+		isHidden
+		displayFolder: 核心 KPI
+		lineageTag: 903e247d-cf58-4880-90da-f613b3eb0fc6
+
+	/// 最新一分钟支付用户数相比上一窗口的变化率。
+	measure 支付用户环比 = DIVIDE([最新支付用户] - [上一窗口支付用户], [上一窗口支付用户])
+		formatString: +0.0%;-0.0%;0.0%
+		displayFolder: 核心 KPI
+		lineageTag: 7e853e25-4388-44c3-99f8-a14d8e291215
+
+	/// 当前筛选范围最新一分钟窗口的支付金额。
+	measure 最新支付金额 =
+			VAR _latest = [最新窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[支付金额]), TREATAS({_latest}, '窗口时间'[窗口开始]))
+		formatString: ¥#,##0.00
+		displayFolder: 核心 KPI
+		lineageTag: 50ae5c30-b5be-484d-9a11-e1d04adc20de
+
+	/// 当前筛选范围上一分钟窗口的支付金额。
+	measure 上一窗口支付金额 =
+			VAR _previous = [上一窗口时间]
+			RETURN
+			    CALCULATE(MAX('实时经营总览'[支付金额]), TREATAS({_previous}, '窗口时间'[窗口开始]))
+		formatString: ¥#,##0.00
+		isHidden
+		displayFolder: 核心 KPI
+		lineageTag: 54a92c58-18a7-4b63-b080-58b732999e6a
+
+	/// 最新一分钟支付金额相比上一窗口的变化率。
+	measure 支付金额环比 = DIVIDE([最新支付金额] - [上一窗口支付金额], [上一窗口支付金额])
+		formatString: +0.0%;-0.0%;0.0%
+		displayFolder: 核心 KPI
+		lineageTag: d4cf35f2-69a4-4478-bd12-62213614c83f
+
+	/// 所选不重叠一分钟窗口内的支付金额合计，用于分钟趋势。
+	measure 时间范围支付金额 = SUM('实时经营总览'[支付金额])
+		formatString: ¥#,##0.00
+		displayFolder: 趋势
+		lineageTag: 491a922b-f177-4e1c-b1b7-349d2e58e627
+
+	column 窗口开始
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: 1b173dc0-62d6-47a0-83fc-6c13a76cbedf
+		summarizeBy: none
+		sourceColumn: window_start
+
+	column 窗口结束
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: 98d478b0-a275-4da3-b0e5-24711d3034da
+		summarizeBy: none
+		sourceColumn: window_end
+
+	column PV
+		dataType: int64
+		isHidden
+		lineageTag: 455d2d8d-8d5c-4e7f-a45f-2b35d165f0de
+		summarizeBy: none
+		sourceColumn: pv
+
+	column UV
+		dataType: int64
+		isHidden
+		lineageTag: 2195b37c-7687-4b87-8307-d92940423b08
+		summarizeBy: none
+		sourceColumn: uv
+
+	column 加购用户
+		dataType: int64
+		isHidden
+		lineageTag: c5c73fdf-eb02-49c4-b64a-3d0b73f31976
+		summarizeBy: none
+		sourceColumn: cart_users
+
+	column 下单用户
+		dataType: int64
+		isHidden
+		lineageTag: 013f707a-a567-4f99-9d9a-f45101cfbcb9
+		summarizeBy: none
+		sourceColumn: order_users
+
+	column 支付用户
+		dataType: int64
+		isHidden
+		lineageTag: 8665c75f-22e0-4ecc-bf10-d6a319566eb2
+		summarizeBy: none
+		sourceColumn: pay_users
+
+	column 支付金额
+		dataType: decimal
+		isHidden
+		formatString: ¥#,##0.00
+		lineageTag: 739e324d-5a62-41a2-ade0-89fb72d56322
+		summarizeBy: none
+		sourceColumn: pay_amount
+
+	partition 实时经营总览 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT window_start, window_end, pv, uv, cart_users, order_users, pay_users, pay_amount FROM ads_realtime_overview FINAL")
+				in
+				    Source

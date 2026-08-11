@@ -40,36 +40,96 @@ def main():
     ch = (args.clickhouse_url, args.clickhouse_user, args.clickhouse_password)
 
     queries = {
-        "dwd_total": "SELECT count() AS value FROM dwd_user_behavior",
+        "dwd_total": "SELECT count() AS value FROM dwd_user_behavior FINAL",
+        "dirty_total": "SELECT count() AS value FROM dwd_dirty_behavior FINAL",
         "empty_event_id": (
-            "SELECT count() AS value FROM dwd_user_behavior WHERE event_id = ''"
+            "SELECT count() AS value FROM dwd_user_behavior FINAL WHERE event_id = ''"
         ),
         "invalid_event_type": (
-            "SELECT count() AS value FROM dwd_user_behavior "
+            "SELECT count() AS value FROM dwd_user_behavior FINAL "
             "WHERE event_type NOT IN ('view','cart','order','pay')"
         ),
         "duplicate_event_keys": (
             "SELECT count() AS value FROM ("
-            "SELECT event_id FROM dwd_user_behavior "
+            "SELECT event_id FROM dwd_user_behavior FINAL "
             "GROUP BY event_id HAVING count() > 1)"
         ),
         "product_dim_hits": (
-            "SELECT count() AS value FROM dwd_user_behavior WHERE product_name != ''"
+            "SELECT count() AS value FROM dwd_user_behavior FINAL WHERE product_name != ''"
         ),
         "shop_dim_hits": (
-            "SELECT count() AS value FROM dwd_user_behavior WHERE shop_name != ''"
+            "SELECT count() AS value FROM dwd_user_behavior FINAL WHERE shop_name != ''"
         ),
         "region_dim_hits": (
-            "SELECT count() AS value FROM dwd_user_behavior WHERE province != ''"
+            "SELECT count() AS value FROM dwd_user_behavior FINAL WHERE province != ''"
         ),
-        "overview_rows": "SELECT count() AS value FROM ads_realtime_overview",
-        "product_rows": "SELECT count() AS value FROM ads_product_rank",
-        "category_rows": "SELECT count() AS value FROM ads_category_rank",
-        "channel_rows": "SELECT count() AS value FROM ads_channel_funnel",
+        "overview_rows": "SELECT count() AS value FROM ads_realtime_overview FINAL",
+        "product_rows": "SELECT count() AS value FROM ads_product_rank FINAL",
+        "category_rows": "SELECT count() AS value FROM ads_category_rank FINAL",
+        "channel_rows": "SELECT count() AS value FROM ads_channel_funnel FINAL",
         "invalid_pv_uv": (
-            "SELECT count() AS value FROM ads_realtime_overview WHERE uv > pv"
+            "SELECT count() AS value FROM ads_realtime_overview FINAL WHERE uv > pv"
+        ),
+        "invalid_funnel_order": (
+            "SELECT count() AS value FROM ads_channel_funnel FINAL "
+            "WHERE cart_users > view_users OR order_users > cart_users "
+            "OR pay_users > order_users"
         ),
         "alert_rows": "SELECT count() AS value FROM ads_realtime_alert",
+        "order_detail_rows": (
+            "SELECT count() AS value FROM dwd_order_detail FINAL WHERE is_deleted = 0"
+        ),
+        "duplicate_detail_keys": (
+            "SELECT count() AS value FROM ("
+            "SELECT detail_id FROM dwd_order_detail FINAL WHERE is_deleted = 0 "
+            "GROUP BY detail_id HAVING count() > 1)"
+        ),
+        "invalid_order_status": (
+            "SELECT count() AS value FROM dwd_order_detail FINAL "
+            "WHERE is_deleted = 0 AND order_status NOT IN ('CREATED','PAID','CANCELLED','REFUNDED')"
+        ),
+        "paid_without_payment": (
+            "SELECT count() AS value FROM dwd_order_detail FINAL "
+            "WHERE is_deleted = 0 AND order_status IN ('PAID','REFUNDED') "
+            "AND (payment_id IS NULL OR payment_status != 'SUCCESS')"
+        ),
+        "invalid_refund": (
+            "SELECT count() AS value FROM dwd_order_detail FINAL "
+            "WHERE is_deleted = 0 AND order_status = 'REFUNDED' "
+            "AND (refund_id IS NULL OR refund_status != 'SUCCESS' OR refund_amount <= 0)"
+        ),
+        "historical_price_mismatch": (
+            "SELECT count() AS value FROM dwd_order_detail FINAL "
+            "WHERE is_deleted = 0 AND unit_price != catalog_price"
+        ),
+        "scd2_rows": (
+            "SELECT count() AS value FROM dim_product_scd2 FINAL WHERE is_deleted = 0"
+        ),
+        "invalid_scd2_current": (
+            "SELECT count() AS value FROM ("
+            "SELECT product_id FROM dim_product_scd2 FINAL WHERE is_deleted = 0 "
+            "GROUP BY product_id HAVING countIf(is_current = 1) != 1)"
+        ),
+        "overlapping_scd2_ranges": (
+            "SELECT count() AS value "
+            "FROM (SELECT * FROM dim_product_scd2 FINAL WHERE is_deleted = 0) AS a "
+            "INNER JOIN (SELECT * FROM dim_product_scd2 FINAL WHERE is_deleted = 0) AS b "
+            "ON a.product_id = b.product_id "
+            "WHERE a.version_no < b.version_no "
+            "AND a.effective_from < b.effective_to AND b.effective_from < a.effective_to"
+        ),
+        "order_lifecycle_rows": (
+            "SELECT count() AS value FROM ads_order_lifecycle FINAL WHERE is_deleted = 0"
+        ),
+        "order_daily_rows": (
+            "SELECT count() AS value FROM ads_order_daily FINAL WHERE is_deleted = 0"
+        ),
+        "invalid_order_lifecycle": (
+            "SELECT count() AS value FROM ads_order_lifecycle FINAL "
+            "WHERE is_deleted = 0 AND (paid_orders > total_orders "
+            "OR cancelled_orders > total_orders OR refunded_orders > paid_orders "
+            "OR paid_amount < 0 OR refund_amount < 0 OR refund_amount > paid_amount)"
+        ),
     }
 
     results = {}
@@ -109,17 +169,17 @@ def main():
         ),
         (
             "product dimension hit rate",
-            product_hit_rate >= 95,
+            95 <= product_hit_rate <= 100,
             f"{product_hit_rate:.2f}%",
         ),
         (
             "shop dimension hit rate",
-            shop_hit_rate >= 95,
+            95 <= shop_hit_rate <= 100,
             f"{shop_hit_rate:.2f}%",
         ),
         (
             "region dimension hit rate",
-            region_hit_rate >= 95,
+            95 <= region_hit_rate <= 100,
             f"{region_hit_rate:.2f}%",
         ),
         (
@@ -147,6 +207,22 @@ def main():
             results["invalid_pv_uv"] == 0,
             f"invalid windows={results['invalid_pv_uv']:,}",
         ),
+        (
+            "strict funnel stages are monotonic",
+            results["invalid_funnel_order"] == 0,
+            f"invalid windows={results['invalid_funnel_order']:,}",
+        ),
+        ("order DWD has data", results["order_detail_rows"] > 0, f"rows={results['order_detail_rows']:,}"),
+        ("order detail key is unique", results["duplicate_detail_keys"] == 0, f"duplicate keys={results['duplicate_detail_keys']:,}"),
+        ("order status is valid", results["invalid_order_status"] == 0, f"invalid={results['invalid_order_status']:,}"),
+        ("paid orders have successful payment", results["paid_without_payment"] == 0, f"invalid={results['paid_without_payment']:,}"),
+        ("refunded orders have valid refund", results["invalid_refund"] == 0, f"invalid={results['invalid_refund']:,}"),
+        ("historical product price matches", results["historical_price_mismatch"] == 0, f"mismatch={results['historical_price_mismatch']:,}"),
+        ("SCD2 has one current version", results["invalid_scd2_current"] == 0, f"invalid products={results['invalid_scd2_current']:,}"),
+        ("SCD2 validity ranges do not overlap", results["overlapping_scd2_ranges"] == 0, f"overlaps={results['overlapping_scd2_ranges']:,}"),
+        ("order lifecycle ADS has data", results["order_lifecycle_rows"] > 0, f"rows={results['order_lifecycle_rows']:,}"),
+        ("order daily ADS has data", results["order_daily_rows"] > 0, f"rows={results['order_daily_rows']:,}"),
+        ("order lifecycle metrics are consistent", results["invalid_order_lifecycle"] == 0, f"invalid={results['invalid_order_lifecycle']:,}"),
     ]
 
     passed = sum(1 for _, success, _ in checks if success)
@@ -166,11 +242,16 @@ def main():
         "| Layer | Table | Rows |",
         "| --- | --- | ---: |",
         f"| DWD | dwd_user_behavior | {dwd_total:,} |",
+        f"| DLQ | dwd_dirty_behavior | {results['dirty_total']:,} |",
         f"| ADS | ads_realtime_overview | {results['overview_rows']:,} |",
         f"| ADS | ads_product_rank | {results['product_rows']:,} |",
         f"| ADS | ads_category_rank | {results['category_rows']:,} |",
         f"| ADS | ads_channel_funnel | {results['channel_rows']:,} |",
         f"| ADS | ads_realtime_alert | {results['alert_rows']:,} |",
+        f"| DWD | dwd_order_detail | {results['order_detail_rows']:,} |",
+        f"| DIM | dim_product_scd2 | {results['scd2_rows']:,} |",
+        f"| ADS | ads_order_lifecycle | {results['order_lifecycle_rows']:,} |",
+        f"| ADS | ads_order_daily | {results['order_daily_rows']:,} |",
         "",
         "## Dimension Join Quality",
         "",
@@ -200,8 +281,12 @@ def main():
             "",
             "- `pv` counts only `view` events; `uv` counts distinct users with a `view` event.",
             "- Product/category tables are 5-minute payment aggregates. The dashboard selects Top 10.",
-            "- Channel output compares distinct users at each stage. Because mock events do not "
-            "carry an order/session path, it is not a strict user-path funnel.",
+            "- The journey generator carries session/order identifiers. Channel metrics count "
+            "sessions that reached each stage in timestamp order within a 30-minute window.",
+            "- Acceptance queries use FINAL on ReplacingMergeTree tables so Kafka replay does "
+            "not inflate logical business rows.",
+            "- Order CDC checks validate mutable status, payment/refund consistency and the "
+            "event-time SCD2 product version selected for each detail row.",
             "- The alert table is optional and is not included in the pass count.",
             "",
         ]

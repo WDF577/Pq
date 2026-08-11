@@ -1,0 +1,3 @@
+/// 电商实时数仓项目的 Power BI Import 语义模型。
+database
+	compatibilityLevel: 1702

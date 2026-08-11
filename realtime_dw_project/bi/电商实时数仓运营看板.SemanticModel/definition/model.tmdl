@@ -1,0 +1,21 @@
+/// 电商实时数仓项目的企业级运营分析语义模型。
+model 电商实时数仓运营看板
+	culture: zh-CN
+	defaultPowerBIDataSourceVersion: powerBI_V3
+	discourageImplicitMeasures
+	sourceQueryCulture: zh-CN
+	dataAccessOptions
+		legacyRedirects
+		returnErrorValuesAsNull
+
+annotation PBI_ProTooling = ["MCP-PBIModeling","DevMode"]
+
+ref table 窗口时间
+ref table 实时经营总览
+ref table 商品表现
+ref table 品类表现
+ref table 渠道漏斗
+ref table 订单日期
+ref table 渠道
+ref table 订单每日指标
+ref table 商品版本历史

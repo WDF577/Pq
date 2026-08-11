@@ -1,0 +1,105 @@
+{
+  "$schema": "./cdc_contracts.schema.json",
+  "contract_version": 1,
+  "compatibility_policy": "backward_additive",
+  "cross_table_consistency": "eventual",
+  "description": "五张 MySQL CDC 源表到 Kafka ODS 的字段级契约。每张表独立采集和提交，不承诺跨 Topic 原子可见。",
+  "entities": [
+    {
+      "source_table": "order_info",
+      "flink_source_table": "mysql_order_info",
+      "flink_sink_table": "ods_order_info_kafka",
+      "topic": "ods_order_info",
+      "primary_key": ["order_id"],
+      "delete_semantics": "kafka_tombstone",
+      "fields": [
+        {"name": "order_id", "flink_type": "STRING", "nullable": false},
+        {"name": "user_id", "flink_type": "BIGINT", "nullable": false},
+        {"name": "shop_id", "flink_type": "BIGINT", "nullable": false},
+        {"name": "order_status", "flink_type": "STRING", "nullable": false},
+        {"name": "channel", "flink_type": "STRING", "nullable": false},
+        {"name": "order_amount", "flink_type": "DECIMAL(12,2)", "nullable": false},
+        {"name": "promotion_code", "flink_type": "STRING", "nullable": true},
+        {"name": "create_time", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "update_time", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "version_no", "flink_type": "BIGINT", "nullable": false}
+      ]
+    },
+    {
+      "source_table": "order_detail",
+      "flink_source_table": "mysql_order_detail",
+      "flink_sink_table": "ods_order_detail_kafka",
+      "topic": "ods_order_detail",
+      "primary_key": ["detail_id"],
+      "delete_semantics": "kafka_tombstone",
+      "fields": [
+        {"name": "detail_id", "flink_type": "STRING", "nullable": false},
+        {"name": "order_id", "flink_type": "STRING", "nullable": false},
+        {"name": "product_id", "flink_type": "BIGINT", "nullable": false},
+        {"name": "quantity", "flink_type": "INT", "nullable": false},
+        {"name": "unit_price", "flink_type": "DECIMAL(10,2)", "nullable": false},
+        {"name": "detail_amount", "flink_type": "DECIMAL(12,2)", "nullable": false},
+        {"name": "create_time", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "update_time", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "version_no", "flink_type": "BIGINT", "nullable": false}
+      ]
+    },
+    {
+      "source_table": "payment_info",
+      "flink_source_table": "mysql_payment_info",
+      "flink_sink_table": "ods_payment_info_kafka",
+      "topic": "ods_payment_info",
+      "primary_key": ["payment_id"],
+      "delete_semantics": "kafka_tombstone",
+      "fields": [
+        {"name": "payment_id", "flink_type": "STRING", "nullable": false},
+        {"name": "order_id", "flink_type": "STRING", "nullable": false},
+        {"name": "payment_status", "flink_type": "STRING", "nullable": false},
+        {"name": "payment_method", "flink_type": "STRING", "nullable": false},
+        {"name": "payment_amount", "flink_type": "DECIMAL(12,2)", "nullable": false},
+        {"name": "payment_time", "flink_type": "TIMESTAMP(3)", "nullable": true},
+        {"name": "update_time", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "version_no", "flink_type": "BIGINT", "nullable": false}
+      ]
+    },
+    {
+      "source_table": "refund_info",
+      "flink_source_table": "mysql_refund_info",
+      "flink_sink_table": "ods_refund_info_kafka",
+      "topic": "ods_refund_info",
+      "primary_key": ["refund_id"],
+      "delete_semantics": "kafka_tombstone",
+      "fields": [
+        {"name": "refund_id", "flink_type": "STRING", "nullable": false},
+        {"name": "order_id", "flink_type": "STRING", "nullable": false},
+        {"name": "payment_id", "flink_type": "STRING", "nullable": false},
+        {"name": "refund_status", "flink_type": "STRING", "nullable": false},
+        {"name": "refund_amount", "flink_type": "DECIMAL(12,2)", "nullable": false},
+        {"name": "refund_reason", "flink_type": "STRING", "nullable": true},
+        {"name": "refund_time", "flink_type": "TIMESTAMP(3)", "nullable": true},
+        {"name": "update_time", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "version_no", "flink_type": "BIGINT", "nullable": false}
+      ]
+    },
+    {
+      "source_table": "dim_product_scd2",
+      "flink_source_table": "mysql_dim_product_scd2",
+      "flink_sink_table": "ods_dim_product_scd2_kafka",
+      "topic": "ods_dim_product_scd2",
+      "primary_key": ["product_id", "version_no"],
+      "delete_semantics": "kafka_tombstone",
+      "fields": [
+        {"name": "product_id", "flink_type": "BIGINT", "nullable": false},
+        {"name": "version_no", "flink_type": "INT", "nullable": false},
+        {"name": "product_name", "flink_type": "STRING", "nullable": false},
+        {"name": "category_id", "flink_type": "BIGINT", "nullable": false},
+        {"name": "category_name", "flink_type": "STRING", "nullable": false},
+        {"name": "price", "flink_type": "DECIMAL(10,2)", "nullable": false},
+        {"name": "effective_from", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "effective_to", "flink_type": "TIMESTAMP(3)", "nullable": false},
+        {"name": "is_current", "flink_type": "TINYINT", "nullable": false},
+        {"name": "updated_at", "flink_type": "TIMESTAMP(3)", "nullable": false}
+      ]
+    }
+  ]
+}

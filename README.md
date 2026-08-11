@@ -1,203 +1,159 @@
-# 基于 Kafka + Flink + ClickHouse 的电商用户行为实时数仓
+# 电商实时数仓：Kafka + Flink CDC + ClickHouse
 
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Docker](https://img.shields.io/badge/docker-compose-2496ED?logo=docker&logoColor=white)](https://docs.docker.com/compose/)
-[![Flink](https://img.shields.io/badge/flink-1.18-E6526F?logo=apache-flink&logoColor=white)](https://flink.apache.org/)
-[![ClickHouse](https://img.shields.io/badge/clickhouse-24.3-FFCC01?logo=clickhouse&logoColor=black)](https://clickhouse.com/)
+这是一个可在个人电脑完整复现的企业化实时数仓实验项目。它不是把组件“都启动起来”就结束，而是覆盖业务数据库变更、订单状态流转、历史维度版本、实时计算、幂等落库、质量验收、监控告警和故障恢复。
 
-## 项目定位
+> 项目定位：企业设计思路的单机 Docker 实验环境，不宣称生产高可用集群。
 
-这是一个个人学习型实时数仓项目，用于完整复现电商用户行为从产生、传输、实时加工、指标落库到看板展示的链路：
+## 两条业务链路
 
-`Python -> Kafka -> Flink SQL -> Kafka -> Python Batch Loader -> ClickHouse -> Streamlit`
+```mermaid
+flowchart LR
+    G1["Python 行为旅程"] --> K1["Kafka ODS 行为"]
+    K1 --> F1["Flink 清洗 / Watermark / 严格漏斗"]
+    F1 --> DLQ["Kafka DLQ"]
+    F1 --> K2["Kafka DWD / ADS"]
 
-项目以 Docker Compose 编排 6 个本地服务，按 ODS、DWD、ADS 组织数据；DWS 仅体现为 Flink SQL 中的窗口聚合逻辑，没有单独持久化。
+    M["MySQL 订单 / 明细 / 支付 / 退款 / SCD2"] --> CDC["Flink MySQL CDC"]
+    CDC --> KO["Kafka Upsert ODS"]
+    KO --> FD["Flink 订单宽表与事件时间 SCD2 Join"]
+    FD --> KA["Kafka DWD / ADS"]
 
-## 架构
-
-```text
-Python mock events
-        |
-        v
-Kafka: ods_user_behavior                         MySQL dimensions
-        |                                      product / shop / region
-        v                                                |
-Flink SQL source + event time + 5-second Watermark       |
-        |                                                |
-        +------ JDBC processing-time Temporal Join <-----+
-        |
-        +------ Kafka: dwd_user_behavior
-        |
-        +------ 1-minute / 5-minute TUMBLE aggregates
-                         |
-                         +-- ads_realtime_overview
-                         +-- ads_product_rank
-                         +-- ads_category_rank
-                         +-- ads_channel_funnel
-                                      |
-                                      v
-                         Python batch loader
-                                      |
-                                      v
-                         ClickHouse + Streamlit
+    K2 --> L["幂等 Loader Service"]
+    KA --> L
+    L --> LDLQ["Kafka Loader DLQ"]
+    L --> C["ClickHouse"]
+    C --> BI["Power BI 业务看板"]
+    C --> S["Streamlit 诊断页"]
+    F1 --> P["Prometheus / Grafana / Alertmanager"]
+    FD --> P
 ```
 
-Docker 服务：
+### 用户行为链路
 
-- ZooKeeper
-- Kafka
-- MySQL
-- ClickHouse
-- Flink JobManager
-- Flink TaskManager
+- 生成同一 `session_id` 下可追踪的 view → cart → order → pay 旅程。
+- Flink 使用事件时间、5 秒 Watermark、业务 DLQ 和 MySQL JDBC Temporal Lookup Join。
+- 输出 1 分钟经营概览、5 分钟商品/品类聚合和 30 分钟严格渠道漏斗。
 
-## 数据分层
+### 订单 CDC 链路
 
-| 层级 | 实现 | 粒度与职责 |
+- MySQL 保存 `order_info`、`order_detail`、`payment_info`、`refund_info` 和 `dim_product_scd2`。
+- Flink CDC 读取初始快照和 ROW binlog，写入 5 个 Upsert Kafka ODS Topic。
+- DWD 以订单明细为粒度关联订单状态、支付、退款和商品历史版本。
+- 商品调价关闭旧版本并新增当前版本，DWD 按订单发生时间命中 `[effective_from, effective_to)`。
+- ADS 输出渠道订单生命周期和每日渠道指标，处理 CREATED → PAID/CANCELLED → REFUNDED 的变更流。
+- 生成器按创建、支付/取消、退款三个阶段分别提交事务，让 CDC 能观察完整状态迁移。
+
+## 为什么使用这些组件
+
+| 组件 | 项目职责 | 选择原因 |
 | --- | --- | --- |
-| ODS | Kafka `ods_user_behavior` | 一条消息代表一次用户行为，保留原始 JSON |
-| DWD | Kafka + ClickHouse `dwd_user_behavior` | 一行代表一条清洗并补充维度后的用户行为 |
-| DWS | Flink SQL 窗口聚合逻辑 | 1 分钟或 5 分钟的主题聚合，不单独持久化 |
-| ADS | ClickHouse `ads_*` | 面向看板的窗口指标 |
+| MySQL | 交易库、主数据、SCD2 | 适合事务更新、主键约束和 binlog CDC |
+| Kafka | ODS/DWD/ADS 消息层 | 解耦、削峰、可重放；Upsert Topic 表达更新与删除 |
+| Flink SQL / CDC | 清洗、Join、窗口、状态更新 | 支持事件时间、有状态流计算和数据库增量捕获 |
+| RocksDB + Checkpoint | 算子状态与恢复 | 大状态不完全占用 JVM 堆，故障后从一致状态恢复 |
+| ClickHouse | DWD/ADS 查询服务层 | 列式存储适合明细抽查和聚合分析 |
+| Python Loader | Kafka 到 ClickHouse 常驻装载、坏消息隔离与批量回放 | 展示批量、重试、显式 offset、DLQ 与逻辑幂等边界 |
+| Power BI | 企业业务报表 | 比开发型 Web 页面更贴近常见 BI 交付 |
+| Streamlit | 开发诊断页 | 快速查看明细、告警和中间结果，不作为核心交付 |
+| Prometheus / Grafana / Alertmanager | 指标、看板、告警路由 | 观察 Job、Checkpoint、Lag、Loader、DLQ 与端到端业务数据年龄 |
+| Freshness Exporter | ClickHouse 业务时间探针 | 用代表性 DWD/ADS 最大业务时间衡量链路新鲜度，并显式区分监控与告警策略 |
+| Docker Compose | 本地复现 | 固化版本、网络、健康检查、数据卷和启动顺序 |
 
-详细粒度、维表关系和指标口径见 [数据模型说明](realtime_dw_project/docs/data_model.md)。
+详细取舍见 [组件选型说明](realtime_dw_project/docs/component_decisions.md)。
 
-## 核心实现
+## 数据分层与粒度
 
-### DWD 清洗与维表关联
-
-- 过滤空 `event_id`、空 `user_id` 和非法 `event_type`
-- 使用事件时间和 5 秒 Watermark 处理有限乱序
-- 有限批次生成器按事件时间递增发送，并注入默认 3 秒抖动，用于验证 Watermark
-- 使用 JDBC processing-time Temporal Join 关联商品、店铺和地区维表
-- 保留维表未命中的明细，并在质量报告中统计命中率
-
-### 实时指标
-
-| 输出 | 窗口 | 口径 |
+| 层级 | 落地 | 代表粒度 |
 | --- | --- | --- |
-| 实时概览 | 1 分钟 | PV、UV、加购/下单/支付用户数、支付金额 |
-| 商品支付聚合 | 5 分钟 | 每商品支付次数与金额，看板取 Top 10 |
-| 品类支付聚合 | 5 分钟 | 每品类支付次数、用户数与金额 |
-| 渠道阶段人数 | 1 分钟 | 各渠道 view/cart/order/pay 去重用户数 |
+| ODS | Kafka | 一次行为事件，或一张 MySQL 业务表的一条最新键值记录 |
+| DWD | Kafka + ClickHouse | 一次行为事件；一条订单明细及其订单/支付/退款/历史商品快照 |
+| DWS | Flink SQL 逻辑层 | 窗口或订单级中间聚合，不单独持久化 |
+| ADS | Kafka + ClickHouse | 时间窗口、渠道、日期等看板查询粒度 |
 
-`pv` 只统计 `event_type='view'`；`uv` 是发生浏览行为的去重用户数。
+准确说法是“ODS、DWD、ADS 持久化，DWS 作为逻辑聚合层”，不是完整四层物理数仓。
 
-渠道表用于比较各阶段人数。由于模拟事件没有 `order_id`、`session_id`，也不保证同一用户严格按 view -> cart -> order -> pay 发生，因此它不是严格的用户路径漏斗。
+## 可靠性与数据可信度
 
-### ClickHouse 装载与看板
+- Flink Kafka Sink 使用 Exactly-Once，依赖 10 秒 Checkpoint。
+- RocksDB 状态后端、固定延迟重启和持久化 Checkpoint 支持 TaskManager 恢复。
+- 常驻 Loader 先批量写 ClickHouse，成功后同步提交 Kafka offset；异常退出由 Compose 重启。
+- Loader 对 JSON、ClickHouse 映射类型/格式和必填字段异常使用确定性消息 ID 写入 `clickhouse_loader_dlq`；只有获得 broker ACK 后该源 offset 才可提交，DLQ 失败时不会越过坏消息。DLQ 使用纯 `compact`，以消息 ID 为 key 长期保留每条异常的最新 `pending/replayed` 状态，不设置会让未处理记录按时间静默过期的 delete retention。
+- `ingest_version` 由 Loader epoch + Kafka partition/offset 确定性生成，历史重放不会凭装载时间覆盖更新值。
+- ClickHouse 记录 topic/partition/offset 和版本，`ReplacingMergeTree` + `FINAL` 实现业务键逻辑幂等。
+- 质量报告验证行为主键、漏斗单调、支付/退款一致性、SCD2 当前版本和区间、历史价格命中及 ADS 口径。
+- `contracts/cdc_contracts.json` 固化五张 CDC 表的字段、主键、Topic、tombstone 与最终一致性语义，CI 自动比对 MySQL/Flink DDL。
+- Schema Evolution 演练采用“先加可空字段、契约登记、下游计划升级”，不让上游 DDL 未经评审自动冲击 BI。
+- 独立 Freshness Exporter 从行为 DWD、订单 DWD 和实时 ADS 查询最大业务时间并暴露数据年龄；陈旧告警默认关闭，只在已约定持续流量/SLA 的环境显式启用。
+- push/PR 运行快速静态与单元测试；手动触发的集成 CI 才启动完整数据面，验证 9 条 Flink 作业、9 个查询输出、tombstone 恢复和 24 项质量规则，并上传验收证据。
 
-- Python 消费 5 个 Flink 输出 Topic，按表批量写入 ClickHouse
-- 批次成功后同步提交 Kafka offset，避免“已提交但未落库”
-- Streamlit 只读取最新窗口的商品、品类和渠道结果
-- ReplacingMergeTree 查询使用 `FINAL` 展示合并后的最新窗口值
+边界：Kafka → Flink → Kafka 可使用 Exactly-Once；Kafka → Python Loader → ClickHouse 是可重放的最终一致与逻辑幂等，不是跨系统分布式事务。
 
-### 数据质量
+## 快速运行
 
-`quality_report.py` 验证：
+要求：Docker Desktop、Python 3、PowerShell。建议主机至少 8 GB 内存。
 
-- DWD 核心表非空
-- 空事件 ID、非法事件类型
-- 重复事件 ID
-- 商品、店铺、地区维表命中率
-- 4 类 ADS 结果非空
-- `UV <= PV`
+Windows：
 
-ODS 位于 Kafka，因此报告不会再用 DWD 行数估算 ODS 行数或虚构“清洗率”。
-
-## 快速启动
-
-### 前提
-
-- Docker Desktop
-- Python 3
-- Bash
-- 建议至少 8 GB 内存
-
-### 一键演示
-
-```bash
-bash start_demo.sh
+```powershell
+.\start_demo.ps1
 ```
 
-> `run_demo.sh` 会执行 `docker compose down -v`，重建本项目容器和数据卷，仅适合本地演示环境。
+脚本会执行 `docker compose down -v`，仅适用于本地演示环境。它会重建环境、初始化表和 Topic、提交 9 条 Flink 作业、生成行为与交易数据、演练兼容字段变更、装载 ClickHouse 并验收。
 
-### 分步运行
+常用入口：
 
-```bash
+| 服务 | 地址 |
+| --- | --- |
+| Flink Web UI | http://localhost:8081 |
+| Prometheus | http://localhost:9090 |
+| Alertmanager | http://localhost:9093 |
+| Grafana | http://localhost:3000（本地默认 admin/admin） |
+| Loader Metrics | http://localhost:9410/metrics |
+| Freshness Metrics | http://localhost:9420/metrics |
+
+保留数据卷停止容器：`.\stop_demo.ps1`；同时关闭 Docker Desktop：`.\stop_demo.ps1 -ShutdownDockerDesktop`。
+
+## 验收、故障与压测
+
+```powershell
 cd realtime_dw_project
-docker compose up -d
-bash scripts/run_demo.sh
-python3 -m streamlit run dashboard/app.py
+.\scripts\verify_result.ps1
+python scripts\quality_report.py --output artifacts\latest_quality_report.md
+.\scripts\schema_evolution_drill.ps1
+python scripts\delete_tombstone_drill.py
+$env:JOURNEYS='10000'; .\scripts\fault_recovery_drill.ps1
+.\scripts\benchmark_pipeline.ps1 -Journeys 10000 -Orders 1000
 ```
 
-- Flink Web UI: http://localhost:8081
-- Streamlit: http://localhost:8501
+故障脚本会杀掉并重新拉起 TaskManager，要求出现新的 Checkpoint 恢复证据，再执行 Kafka 重放和业务键验收。压测报告只记录增量 Kafka offset 与本机实测，不使用累计行数伪造吞吐。
 
-停止环境：
+## 当前规模
 
-```bash
-bash stop_demo.sh
-```
+- 12 个长期运行容器，另有 1 个一次性 Flink 卷初始化服务。
+- 15 个业务 Kafka Topic，另有 1 个纯 `compact` Loader DLQ Topic；业务 Topic 默认 3 分区。DLQ 不按时间删除最新状态，但仍需监控磁盘容量并按审计制度归档。
+- 9 条 Flink 作业：6 条行为链路、1 条多表 CDC、1 条订单 DWD、1 条双 ADS StatementSet。
+- 5 张 MySQL CDC 业务/历史表，另有静态商品、店铺、地区维表和 Schema 契约表。
+- 10 张 ClickHouse 查询表。
+- 24 项质量报告验收规则和 21 项命令行快速验收规则。
 
-## 项目规模
+## 文档导航
 
-默认演示脚本生成 100,000 条模拟事件。当前静态结构为：
+- [架构与故障边界](realtime_dw_project/docs/architecture.md)
+- [数据模型与指标口径](realtime_dw_project/docs/data_model.md)
+- [组件选型](realtime_dw_project/docs/component_decisions.md)
+- [Schema Evolution](realtime_dw_project/docs/schema_evolution.md)
+- [运行手册](realtime_dw_project/docs/operations_runbook.md)
+- [性能与故障恢复实测](realtime_dw_project/docs/performance_report.md)
+- [面试问答](realtime_dw_project/docs/interview_qa.md)
+- [面试项目讲解脚本](realtime_dw_project/docs/interview_demo_script.md)
+- [简历描述](realtime_dw_project/docs/resume.md)
 
-| 项目 | 数量 |
-| --- | ---: |
-| Docker 服务 | 6 |
-| Kafka Topic | 6 |
-| Flink Job | 5（1 个 DWD + 4 个 ADS） |
-| MySQL 维表 | 3 |
-| ClickHouse 表 | 6（1 个 DWD + 4 个 ADS + 1 个告警） |
+## 仍然存在的生产化差距
 
-运行后的实际行数受脏数据、窗口、消费组和执行次数影响，以最新质量报告为准，不在文档中固定宣传累计值。
+- 单 Kafka Broker、单 JobManager、单 TaskManager，不具备跨节点高可用。
+- Checkpoint 在本地卷，不是远端对象存储；没有 Kubernetes 自动调度和弹性扩缩容。
+- 没有 Schema Registry、元数据/血缘平台、数据权限和敏感字段治理。
+- Python Loader 适合演示可靠性边界；更大规模应评估成熟 ClickHouse Connector。
+- Freshness 告警只有在业务确实应持续产数时才有意义；正常静默期与上游断流无法只靠数据年龄自动区分。
 
-## 已知边界
-
-- 单机 Docker Compose、单 Kafka 分区和单副本，不具备生产高可用
-- 未配置 Flink Checkpoint、状态后端和端到端 Exactly Once
-- MySQL 维表为静态初始化数据，未接入 CDC
-- JDBC Lookup 未显式配置缓存
-- 商品表保存的是窗口聚合结果，Top 10 在看板侧选择
-- 渠道表是阶段人数对比，不是严格路径漏斗
-- ReplacingMergeTree 后台合并是异步的，查询端使用 `FINAL` 获得稳定展示
-
-## 项目结构
-
-```text
-.
-├── README.md
-├── REPORT.md
-├── start_demo.sh
-├── stop_demo.sh
-└── realtime_dw_project
-    ├── docker-compose.yml
-    ├── dashboard/app.py
-    ├── flink-sql
-    │   ├── 01_create_source_tables.sql
-    │   ├── 02_create_dwd_tables.sql
-    │   ├── 03_create_dws_ads_tables.sql
-    │   └── 04_queries.sql
-    ├── scripts
-    │   ├── generate_mock_events.py
-    │   ├── load_kafka_to_clickhouse.py
-    │   ├── generate_alerts.py
-    │   ├── quality_report.py
-    │   └── verify_result.sh
-    └── docs
-        ├── architecture.md
-        ├── data_model.md
-        ├── interview_qa.md
-        ├── quality_report.md
-        └── resume.md
-```
-
-## 安全说明
-
-仓库内密码只用于本地 Docker Demo，不可直接用于生产环境。
-
-## License
-
-MIT
+企业级不等于组件越多，而是粒度、状态、失败边界、恢复方式、监控和验收都能说清楚。

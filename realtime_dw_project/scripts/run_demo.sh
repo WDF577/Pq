@@ -5,64 +5,116 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 cd "$PROJECT_DIR"
 
-echo "== 电商实时数仓本地演示 =="
-echo "说明：本脚本会重建本项目的 Docker 容器和数据卷，用于得到一份干净的演示结果。"
+echo "== Realtime data warehouse local demo =="
+echo "Warning: this rebuilds the project containers and resets its Docker volumes."
 echo
 
 need_cmd() {
   local cmd="$1"
   if ! command -v "$cmd" >/dev/null 2>&1; then
-    echo "缺少命令：$cmd，请先安装后再运行。" >&2
+    echo "Missing command: $cmd. Install it before running the demo." >&2
     exit 1
   fi
 }
 
 need_cmd docker
 need_cmd python3
+need_cmd curl
 
-echo "1. 检查 Python 依赖"
+echo "1. Check Python dependencies"
 python3 - <<'PY' >/dev/null 2>&1 || python3 -m pip install -r requirements.txt
 import confluent_kafka
+import mysql.connector
 PY
 
-echo "2. 检查 Flink 连接器"
+echo "2. Check Flink connector jars"
 bash scripts/download_connectors.sh
 
-echo "3. 重建本地演示环境"
+echo "3. Rebuild only the core infrastructure"
 docker compose down -v --remove-orphans
-docker compose up -d
+docker compose up -d --build \
+  zookeeper kafka mysql clickhouse \
+  flink-volume-init flink-jobmanager flink-taskmanager
 
-echo "4. 等待 MySQL 可用"
+echo "4. Wait for core infrastructure health"
 until docker exec rtdw_mysql mysql -uroot -proot -e "SELECT 1" >/dev/null 2>&1; do
   sleep 2
 done
+until docker exec rtdw_kafka kafka-topics --bootstrap-server kafka:29092 --list >/dev/null 2>&1; do
+  sleep 2
+done
+until docker exec rtdw_clickhouse wget -qO- http://localhost:8123/ping >/dev/null 2>&1; do
+  sleep 2
+done
+until curl -fsS http://localhost:8081/overview >/dev/null 2>&1; do
+  sleep 2
+done
 
-echo "5. 初始化 MySQL 维表"
+echo "5. Initialize MySQL dimensions and business tables"
 docker exec -i rtdw_mysql mysql -uroot -proot ecommerce < scripts/create_mysql_dim_expanded.sql
+docker exec -i rtdw_mysql mysql -uroot -proot ecommerce < scripts/create_mysql_business_tables.sql
 
-echo "6. 创建 Kafka Topic"
+echo "6. Create Kafka topics with their declared cleanup policies"
 bash scripts/create_kafka_topics.sh
 
-echo "7. 初始化 ClickHouse 表"
+echo "7. Initialize ClickHouse tables before the loader starts"
 docker exec -i rtdw_clickhouse clickhouse-client --password clickhouse --multiquery < scripts/create_clickhouse_tables.sql
 
-echo "8. 提交 Flink SQL 任务"
+echo "8. Start the long-running loader, freshness exporter, and monitoring stack"
+docker compose up -d --build \
+  clickhouse-loader pipeline-freshness-exporter prometheus grafana
+until [[ "$(docker inspect --format='{{.State.Health.Status}}' rtdw_clickhouse_loader 2>/dev/null)" == "healthy" ]]; do
+  sleep 2
+done
+until [[ "$(docker inspect --format='{{.State.Health.Status}}' rtdw_pipeline_freshness_exporter 2>/dev/null)" == "healthy" ]]; do
+  sleep 2
+done
+
+echo "9. Submit the behavior and order CDC Flink SQL jobs"
 bash scripts/run_flink_sql.sh
 MSYS_NO_PATHCONV=1 docker exec rtdw_flink_jobmanager /opt/flink/bin/flink list
+jobs_ready=0
+for _ in $(seq 1 100); do
+  if python3 - <<'PY'
+import json
+import urllib.request
 
-echo "9. 生成测试数据（10万条，覆盖过去2小时，含脏数据）"
-python3 scripts/generate_mock_events.py --count 100000 --interval 0 --time-span-minutes 120
+with urllib.request.urlopen("http://localhost:8081/jobs/overview", timeout=5) as response:
+    jobs = json.load(response)["jobs"]
+healthy = (
+    len(jobs) == 9
+    and all(job["state"] == "RUNNING" for job in jobs)
+    and all(job["tasks"]["running"] == job["tasks"]["total"] for job in jobs)
+)
+raise SystemExit(0 if healthy else 1)
+PY
+  then
+    jobs_ready=1
+    break
+  fi
+  sleep 3
+done
+if [[ "$jobs_ready" -ne 1 ]]; then
+  echo "Nine Flink jobs did not become healthy within 300 seconds." >&2
+  exit 1
+fi
 
-echo "10. 等待 Flink 处理完成（30秒）"
+echo "10. Generate traceable user journeys and mutable order transactions"
+python3 scripts/generate_order_journeys.py --journeys 5000 --interval 0 --time-span-minutes 120
+python3 scripts/generate_order_transactions.py --orders 500
+
+echo "11. Rehearse an additive nullable-field schema evolution"
+bash scripts/schema_evolution_drill.sh
+
+echo "12. Wait 30 seconds for Flink output to reach the long-running loader"
 sleep 30
 
-echo "11. 装载 Flink 输出结果到 ClickHouse"
-python3 scripts/load_kafka_to_clickhouse.py --group-id demo_loader --max-messages 0 --idle-timeout 30
-
-echo "12. 查询并验收结果"
+echo "13. Verify results and generate the data-quality report"
 bash scripts/verify_result.sh
-python3 scripts/quality_report.py
+python3 scripts/quality_report.py --output artifacts/latest_quality_report.md
 
 echo
-echo "演示完成。可以打开 Flink 页面查看任务：http://localhost:8081"
-echo "停止环境：docker compose down"
+echo "Demo complete. Flink: http://localhost:8081"
+echo "Prometheus: http://localhost:9090"
+echo "Grafana: http://localhost:3000 (local default: admin/admin)"
+echo "Stop the environment with: docker compose down"

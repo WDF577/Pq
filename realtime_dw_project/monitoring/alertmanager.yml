@@ -1,0 +1,15 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: local-observation
+  group_by: [alertname, severity]
+  group_wait: 10s
+  group_interval: 1m
+  repeat_interval: 4h
+
+receivers:
+  - name: local-observation
+
+# The local receiver deliberately has no external destination. In production,
+# add a managed webhook, email or team-chat receiver through secret management.

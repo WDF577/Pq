@@ -1,0 +1,20 @@
+/// 订单与行为主题共用的渠道维度；从订单每日指标和实时渠道漏斗取并集，一行代表一个有效来源渠道。
+table 渠道
+	lineageTag: 6bac1382-9e4d-4f75-8277-f31dd9fd9d1b
+
+	/// 订单或行为产生的来源渠道。
+	column 渠道
+		dataType: string
+		isNullable: false
+		lineageTag: 464c51a9-2085-4625-a237-8423fcb419bd
+		summarizeBy: none
+		sourceColumn: channel
+
+	partition 渠道 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT DISTINCT channel FROM (SELECT channel FROM ads_order_daily FINAL WHERE is_deleted = 0 UNION ALL SELECT channel FROM ads_channel_funnel FINAL) ORDER BY channel")
+				in
+				    Source

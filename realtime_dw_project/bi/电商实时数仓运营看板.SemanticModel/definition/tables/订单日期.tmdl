@@ -1,0 +1,23 @@
+/// 订单主题的日期筛选维度；一行代表 ads_order_daily 中一个存在订单指标的自然日。
+table 订单日期
+	lineageTag: 12cdbb6e-1860-44e3-ae19-f8fd7c8cb8d5
+	dataCategory: Time
+
+	/// 订单每日指标对应的自然日。
+	column 订单日期
+		dataType: dateTime
+		isUnique
+		isNullable: false
+		formatString: yyyy-MM-dd
+		lineageTag: 5d89d78e-618f-4a34-bd59-2693a50c2d20
+		summarizeBy: none
+		sourceColumn: order_date
+
+	partition 订单日期 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT DISTINCT order_date FROM ads_order_daily FINAL WHERE is_deleted = 0 ORDER BY order_date")
+				in
+				    Source

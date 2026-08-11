@@ -16,11 +16,33 @@ logs/
 tmp/
 temp/
 output/
+artifacts/
 data/
+
+# Keep a small, reviewable evidence set for the public portfolio. Runtime logs
+# and ad-hoc reports remain ignored.
+!realtime_dw_project/artifacts/
+realtime_dw_project/artifacts/*
+!realtime_dw_project/artifacts/benchmark_20260811_153602.md
+!realtime_dw_project/artifacts/fault_recovery_20260811_153947.md
+!realtime_dw_project/artifacts/enterprise_quality_report.md
+!realtime_dw_project/artifacts/powerbi_after/
+realtime_dw_project/artifacts/powerbi_after/*
+!realtime_dw_project/artifacts/powerbi_after/实时经营总览.png
+!realtime_dw_project/artifacts/powerbi_after/订单生命周期.png
+!realtime_dw_project/artifacts/powerbi_after/SCD2 版本审计.png
 
 # IDE
 .idea/
 .vscode/
+
+# Personal interview-learning notes (kept local by request)
+/学习进度.md
+
+# Power BI Desktop local cache, encrypted bindings, and data-bearing binary
+**/.pbi/
+*.pbix
+*_预览.png
 
 # Docker runtime
 *.pid
@@ -29,6 +51,12 @@ data/
 # Flink checkpoints/savepoints
 checkpoints/
 savepoints/
+
+# Downloaded Flink runtime plugins (restored by download_connectors scripts)
+realtime_dw_project/flink-lib/flink-statebackend-rocksdb-*.jar
+realtime_dw_project/flink-lib/frocksdbjni-*.jar
+realtime_dw_project/flink-lib/flink-metrics-prometheus-*.jar
+realtime_dw_project/flink-lib/flink-sql-connector-mysql-cdc-*.jar
 
 # Archives
 *.zip

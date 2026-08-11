@@ -1,0 +1,19 @@
+/// 本地 ClickHouse 主机。
+expression 'ClickHouse 主机' = "localhost" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 1f2a0401-aae4-4dae-b5e6-f9f5ee09e266
+
+/// ClickHouse HTTP/ODBC 端口。
+expression 'ClickHouse 端口' = "8123" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: b7516e3c-9295-455d-be19-e96aa706652b
+
+/// ClickHouse 数据库名称。
+expression 'ClickHouse 数据库' = "default" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: baf1fcfe-c97d-4af3-9ac9-78cf5abf7dc6
+
+/// 本地演示环境用户。
+expression 'ClickHouse 用户' = "default" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: f0a8c7a6-59d9-4cd7-bbc1-2657cd927c47
+
+/// 本地演示环境密码；发布前应改用受管凭据。
+expression 'ClickHouse 密码' = "clickhouse" meta [IsParameterQuery=true, Type="Text", IsParameterQueryRequired=true]
+	lineageTag: 79314895-697a-4b10-acb5-e5c13cd299fe

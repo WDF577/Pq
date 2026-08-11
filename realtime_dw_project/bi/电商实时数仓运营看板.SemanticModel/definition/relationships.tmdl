@@ -1,0 +1,28 @@
+relationship 窗口时间_实时经营总览
+	fromColumn: 实时经营总览.窗口开始
+	toColumn: 窗口时间.窗口开始
+
+relationship 窗口时间_商品表现
+	fromColumn: 商品表现.窗口开始
+	toColumn: 窗口时间.窗口开始
+
+relationship 窗口时间_品类表现
+	fromColumn: 品类表现.窗口开始
+	toColumn: 窗口时间.窗口开始
+
+relationship 窗口时间_渠道漏斗
+	fromColumn: 渠道漏斗.窗口开始
+	toColumn: 窗口时间.窗口开始
+
+relationship OrderDailyDate
+	joinOnDateBehavior: datePartOnly
+	fromColumn: 订单每日指标.订单日期
+	toColumn: 订单日期.订单日期
+
+relationship OrderDailyChannel
+	fromColumn: 订单每日指标.渠道键
+	toColumn: 渠道.渠道
+
+relationship FunnelChannel
+	fromColumn: 渠道漏斗.渠道
+	toColumn: 渠道.渠道

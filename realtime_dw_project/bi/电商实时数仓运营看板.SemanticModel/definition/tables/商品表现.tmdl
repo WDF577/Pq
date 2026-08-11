@@ -1,0 +1,113 @@
+/// 五分钟窗口的商品支付表现，一行代表一个窗口内的一个商品。
+table 商品表现
+	lineageTag: 2040a30a-b4f3-4fb5-96ab-faedc0879468
+
+	/// 当前时间筛选范围内商品表现表的最新五分钟窗口。
+	measure 最新商品窗口 =
+			CALCULATE(
+			    MAX('商品表现'[窗口开始]),
+			    REMOVEFILTERS('商品表现'[商品 ID]),
+			    REMOVEFILTERS('商品表现'[商品名称]),
+			    REMOVEFILTERS('商品表现'[品类名称])
+			)
+		formatString: yyyy-MM-dd HH:mm
+		isHidden
+		displayFolder: 窗口指标
+		lineageTag: b51acba0-d43d-45e2-bf55-028dac483515
+
+	/// 当前筛选范围最新五分钟窗口内，当前商品上下文的支付金额。
+	measure 商品最新窗口支付金额 =
+			VAR _latest = [最新商品窗口]
+			RETURN
+			    CALCULATE(SUM('商品表现'[支付金额]), KEEPFILTERS('商品表现'[窗口开始] = _latest))
+		formatString: ¥#,##0.00
+		displayFolder: 商品指标
+		lineageTag: ed57c27a-846b-4bf1-935d-dbaf1eed1d1a
+
+	/// 当前筛选范围最新五分钟窗口内，当前商品上下文的支付次数。
+	measure 商品最新窗口支付次数 =
+			VAR _latest = [最新商品窗口]
+			RETURN
+			    CALCULATE(SUM('商品表现'[支付次数]), KEEPFILTERS('商品表现'[窗口开始] = _latest))
+		formatString: #,##0
+		displayFolder: 商品指标
+		lineageTag: 5d3783b1-316d-4156-9843-1fae43b19f5f
+
+	/// 仅对当前筛选范围最新商品窗口支付金额排名前十的商品返回金额，其余返回空白。
+	measure '商品 Top 10 支付金额' =
+			VAR _rank =
+			    RANKX(
+			        ALLSELECTED('商品表现'[商品名称]),
+			        [商品最新窗口支付金额],
+			        ,
+			        DESC,
+			        DENSE
+			    )
+			RETURN
+			    IF(_rank <= 10, [商品最新窗口支付金额])
+		formatString: ¥#,##0.00
+		displayFolder: 商品指标
+		lineageTag: 1f536615-d47b-426d-8223-db13009ac272
+
+	column 窗口开始
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: 865322ca-e9eb-41b9-b324-31b2cc83cc90
+		summarizeBy: none
+		sourceColumn: window_start
+
+	column 窗口结束
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: 8a37f473-319d-4dba-bda0-26e681d21856
+		summarizeBy: none
+		sourceColumn: window_end
+
+	column '商品 ID'
+		dataType: int64
+		isHidden
+		lineageTag: 871974ff-212f-4891-8eb0-216a55d24e8f
+		summarizeBy: none
+		sourceColumn: product_id
+
+	/// 商品展示名称。
+	column 商品名称
+		dataType: string
+		lineageTag: f5ab76c7-4dea-408c-9866-d417a3df29bc
+		summarizeBy: none
+		sourceColumn: product_name
+
+	/// 商品所属品类。
+	column 品类名称
+		dataType: string
+		lineageTag: 31c59688-3f6f-4449-bc38-3832ca21c4b2
+		summarizeBy: none
+		sourceColumn: category_name
+
+	column 支付次数
+		dataType: int64
+		isHidden
+		lineageTag: c42fa435-8650-4b8a-be6b-68a0ac62089c
+		summarizeBy: none
+		sourceColumn: pay_count
+
+	column 支付金额
+		dataType: decimal
+		isHidden
+		formatString: ¥#,##0.00
+		lineageTag: e6d9d409-246a-4f46-b2b3-7bf16e15dcbe
+		summarizeBy: none
+		sourceColumn: pay_amount
+
+	partition 商品表现 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT window_start, window_end, product_id, product_name, category_name, pay_count, pay_amount FROM ads_product_rank FINAL")
+				in
+				    Source

@@ -1,0 +1,51 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/powerbi-desktop-samples/main/Report%20Theme%20JSON%20Schema/reportThemeSchema-2.153.json",
+  "name": "RealtimeCommerceCorporateCool-a81f2c4e.json",
+  "dataColors": [
+    "#0F766E",
+    "#0891B2",
+    "#7C3AED",
+    "#F59E0B",
+    "#64748B",
+    "#0EA5E9",
+    "#8B5CF6",
+    "#14B8A6"
+  ],
+  "good": "#107C10",
+  "neutral": "#F59E0B",
+  "bad": "#D13438",
+  "maximum": "#0F766E",
+  "center": "#F59E0B",
+  "minimum": "#CCFBF1",
+  "null": "#94A3B8",
+  "textClasses": {
+    "callout": {
+      "fontSize": 28,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#0F172A"
+    },
+    "title": {
+      "fontSize": 14,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#0F172A"
+    },
+    "header": {
+      "fontSize": 12,
+      "fontFace": "Segoe UI Semibold",
+      "color": "#0F172A"
+    },
+    "label": {
+      "fontSize": 10,
+      "fontFace": "Segoe UI",
+      "color": "#334155"
+    }
+  },
+  "foreground": "#0F172A",
+  "firstLevelElements": "#0F172A",
+  "secondLevelElements": "#475569",
+  "thirdLevelElements": "#E2E8F0",
+  "fourthLevelElements": "#64748B",
+  "background": "#FFFFFF",
+  "secondaryBackground": "#F8FAFC",
+  "tableAccent": "#0F766E"
+}

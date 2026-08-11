@@ -1,0 +1,101 @@
+/// 五分钟窗口的品类支付表现，一行代表一个窗口内的一个品类。
+table 品类表现
+	lineageTag: 075cd7b7-fff1-419a-9e6c-587a974342c4
+
+	/// 当前时间筛选范围内品类表现表的最新五分钟窗口。
+	measure 最新品类窗口 = CALCULATE(MAX('品类表现'[窗口开始]), REMOVEFILTERS('品类表现'[品类名称]))
+		formatString: yyyy-MM-dd HH:mm
+		isHidden
+		displayFolder: 窗口指标
+		lineageTag: 511fb729-27d8-4af6-94ba-3f70dc1bd022
+
+	/// 当前筛选范围最新五分钟窗口内，当前品类上下文的支付金额。
+	measure 品类最新窗口支付金额 =
+			VAR _category = SELECTEDVALUE('品类表现'[品类名称])
+			VAR _latest = [最新品类窗口]
+			RETURN
+			    IF(
+			        ISBLANK(_category) || LEN(TRIM(_category)) = 0,
+			        BLANK(),
+			        CALCULATE(
+			            SUM('品类表现'[支付金额]),
+			            KEEPFILTERS('品类表现'[窗口开始] = _latest)
+			        )
+			    )
+		formatString: ¥#,##0.00
+		displayFolder: 品类指标
+		lineageTag: 1009484a-1fe0-4f73-ad9c-e23efb73cdd8
+
+	/// 当前筛选范围最新五分钟窗口内，当前品类上下文的支付人数。
+	measure 品类最新窗口支付人数 =
+			VAR _latest = [最新品类窗口]
+			RETURN
+			    CALCULATE(SUM('品类表现'[支付用户]), KEEPFILTERS('品类表现'[窗口开始] = _latest))
+		formatString: #,##0
+		displayFolder: 品类指标
+		lineageTag: 624b2505-868c-4171-83a4-b36b51d8d730
+
+	/// 当前筛选范围最新五分钟窗口内，当前品类上下文的支付次数。
+	measure 品类最新窗口支付次数 =
+			VAR _latest = [最新品类窗口]
+			RETURN
+			    CALCULATE(SUM('品类表现'[支付次数]), KEEPFILTERS('品类表现'[窗口开始] = _latest))
+		formatString: #,##0
+		displayFolder: 品类指标
+		lineageTag: af148382-aff1-4b7e-a1e2-0da6d4af3713
+
+	column 窗口开始
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: da4623de-33d6-4e23-9ae6-9508941c3834
+		summarizeBy: none
+		sourceColumn: window_start
+
+	column 窗口结束
+		dataType: dateTime
+		isHidden
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: 54aa75e8-f380-4fa9-86bf-51012a79b952
+		summarizeBy: none
+		sourceColumn: window_end
+
+	/// 商品品类名称。
+	column 品类名称
+		dataType: string
+		lineageTag: 708e474d-52a9-46fb-8f7f-419821ee1097
+		summarizeBy: none
+		sourceColumn: category_name
+
+	column 支付次数
+		dataType: int64
+		isHidden
+		lineageTag: 7f187763-0f8c-4223-a2bd-0344b5e3aa4e
+		summarizeBy: none
+		sourceColumn: pay_count
+
+	column 支付用户
+		dataType: int64
+		isHidden
+		lineageTag: 09feb97f-b6cd-4a9c-8ad7-e1fd6d1d3244
+		summarizeBy: none
+		sourceColumn: pay_users
+
+	column 支付金额
+		dataType: decimal
+		isHidden
+		formatString: ¥#,##0.00
+		lineageTag: dd95f1b7-602f-4a79-b2f8-3bd07567ff62
+		summarizeBy: none
+		sourceColumn: pay_amount
+
+	partition 品类表现 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT window_start, window_end, category_name, pay_count, pay_users, pay_amount FROM ads_category_rank FINAL")
+				in
+				    Source

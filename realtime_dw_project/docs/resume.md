@@ -2,25 +2,29 @@
 
 ## 项目名称
 
-基于 Kafka + Flink + ClickHouse 的电商用户行为实时数仓
+基于 Kafka + Flink CDC + ClickHouse 的电商交易实时数仓
 
 ## 技术栈
 
-Kafka / Flink SQL / ClickHouse / MySQL / Docker Compose / Python
+Kafka / Flink SQL / Flink CDC / RocksDB / ClickHouse / MySQL / Prometheus / Grafana / Alertmanager / Docker Compose / Python / Power BI
 
 ## 推荐描述
 
-- 基于 Docker Compose 搭建 ZooKeeper、Kafka、MySQL、ClickHouse 及 Flink JobManager/TaskManager 共 6 个容器化服务，构建 Python -> Kafka -> Flink -> ClickHouse -> Streamlit 实时链路，并按 ODS -> DWD -> ADS 组织数据加工。
-- 设计 ODS、DWD 与 4 类 ADS 共 6 个 Kafka Topic，拆分日志生成、Flink 实时计算和 ClickHouse 落库模块；可按 Topic 消息、Flink Job 状态及 ClickHouse 表行数逐层定位链路异常。
-- 使用事件时间、Watermark、MySQL JDBC Temporal Join 与 TUMBLE 窗口；DWD 层过滤空事件 ID、空用户 ID 和非法事件类型，并关联商品、店铺、地区 3 张维表。
-- 构建 1 分钟运营概览、5 分钟商品/品类支付聚合和 1 分钟渠道阶段人数 4 类指标；看板侧完成 Top 10 排行与 view -> cart -> order -> pay 阶段对比。
-- 在 ClickHouse 设计 DWD、4 类 ADS 及告警共 6 张表，通过 Streamlit 展示核心结果；补充空值、非法枚举、重复事件 ID、维表命中率及核心表非空校验。
+- 基于 Docker Compose 编排 MySQL、Kafka、Flink、ClickHouse 与监控组件，构建业务库 CDC/行为日志 → ODS → DWD → ADS → Power BI 的可复现实时时数仓链路。
+- 使用 Flink CDC 捕获订单、明细、支付、退款和商品历史维度的快照/binlog；生成器分阶段提交 CREATED、支付/取消与退款事务，以订单明细为 DWD 粒度处理 Changelog 更新并关联支付退款信息。
+- 设计商品 SCD2 调价过程和 `[effective_from, effective_to)` 事件时间关联，质量 SQL 校验唯一当前版本、有效区间不重叠及订单历史成交价命中。
+- 为 Flink 配置 10 秒 Checkpoint、RocksDB、固定延迟重启和 Kafka Exactly-Once Sink；TaskManager 故障演练验证 9 条作业恢复、结果重放与业务主键逻辑幂等。
+- 构建 1 分钟经营概览、30 分钟严格漏斗和订单生命周期 ADS；常驻 Loader 以显式 Kafka offset 与确定性版本幂等写 ClickHouse，坏消息获 DLQ broker 确认后才推进 offset，并通过 DELETE tombstone 演练验证软删除恢复。
+- 建设 24 项数据质量规则、端到端业务时间新鲜度监控、Prometheus/Grafana 告警和 Power BI 看板；设计可手动触发的集成 CI，覆盖 9 条 Flink 作业、9 个查询输出与 tombstone 恢复，并配置成功/失败证据归档。
 
 ## 不建议使用的说法
 
-- “六节点集群”：当前是 6 个单机容器化服务，不是 6 台机器或高可用集群
+- “十节点集群”：当前是单机容器化服务，不是十台机器或高可用集群
 - “Flink TopN”：当前 Top 10 在 Streamlit 侧选择
-- “严格转化漏斗”：当前缺少订单/会话标识和事件序列
+- “跨窗口完整漏斗”：当前严格路径仍受 30 分钟固定窗口边界限制
 - “完整四层物理数仓”：DWS 仅为逻辑窗口聚合，没有单独持久化
 - 固定累计行数：实际结果受运行次数、脏数据和消费组影响
 - “保证最新值”：ReplacingMergeTree 后台合并是异步的
+- “端到端 Exactly Once”：Kafka 到 ClickHouse 是可重放的逻辑幂等，不是分布式事务
+- “GitHub Actions 已云端验证”：首次 `workflow_dispatch` 成功并留下可访问的 artifact 前，只能说已实现集成工作流和本地等价验收
+- 未经实测的固定吞吐：只使用 `artifacts/benchmark_*.md` 的本机实测并注明单机环境

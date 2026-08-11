@@ -1,0 +1,103 @@
+/// 商品维度 SCD2 技术审计表；一行代表某个商品的一个历史版本，刻意保持为独立审计实体以避免多版本与经营事实形成多对多关系。
+table 商品版本历史
+	lineageTag: abf1d4d4-9273-4d03-82bb-16e485cd316d
+
+	/// 当前筛选上下文内的去重商品数量。
+	measure 商品数 = DISTINCTCOUNT('商品版本历史'[商品 ID])
+		formatString: #,##0
+		displayFolder: SCD2 审计
+		lineageTag: d68d17e7-976c-4ce1-9c95-ecb1592fe47c
+
+	/// 当前筛选上下文内的 SCD2 历史版本记录数。
+	measure 版本记录数 = COUNTROWS('商品版本历史')
+		formatString: #,##0
+		displayFolder: SCD2 审计
+		lineageTag: 14d00a38-fb18-4cf5-8a29-e820a27391f9
+
+	/// 当前筛选上下文内标记为当前有效的商品版本数。
+	measure 当前版本数 = CALCULATE(COUNTROWS('商品版本历史'), KEEPFILTERS('商品版本历史'[是否当前] = 1))
+		formatString: #,##0
+		displayFolder: SCD2 审计
+		lineageTag: 55f24ac2-a887-41e9-801b-6af015d74144
+
+	/// 存在两个及以上历史版本的商品数量，用于识别发生过调价或属性变更的商品。
+	measure 调价商品数 = COUNTROWS(FILTER(VALUES('商品版本历史'[商品 ID]), CALCULATE(MAX('商品版本历史'[版本号])) > 1))
+		formatString: #,##0
+		displayFolder: SCD2 审计
+		lineageTag: 0ddc69b0-bfd6-48df-940f-cd6c4a15de01
+
+	/// 用于审计同一商品多个历史版本的业务标识。
+	column '商品 ID'
+		dataType: int64
+		isNullable: false
+		lineageTag: f64c91ee-e64f-46b2-868f-e9d7d953984e
+		summarizeBy: none
+		sourceColumn: product_id
+
+	/// 同一商品按时间递增的 SCD2 版本号。
+	column 版本号
+		dataType: int64
+		isNullable: false
+		lineageTag: d559bc80-98e5-4d55-a0eb-7938614f3e97
+		summarizeBy: none
+		sourceColumn: version_no
+
+	/// 该历史版本生效期间的商品名称。
+	column 商品名称
+		dataType: string
+		isNullable: false
+		lineageTag: 2238eaf0-e8a9-4440-b03e-1332ea2e1141
+		summarizeBy: none
+		sourceColumn: product_name
+
+	/// 该历史版本生效期间的商品品类。
+	column 品类名称
+		dataType: string
+		isNullable: false
+		lineageTag: c1bf923b-d22f-4b6e-9ca6-21baadf056b8
+		summarizeBy: none
+		sourceColumn: category_name
+
+	/// 该历史版本生效期间的商品目录价。
+	column 价格
+		dataType: decimal
+		isNullable: false
+		formatString: ¥#,##0.00
+		lineageTag: 959a04d1-7915-4026-b36a-4b9de55e17c7
+		summarizeBy: none
+		sourceColumn: price
+
+	/// 该版本开始生效的时间。
+	column 生效时间
+		dataType: dateTime
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm:ss
+		lineageTag: b7f5785d-032f-4e29-a15b-29c912c55a68
+		summarizeBy: none
+		sourceColumn: effective_from
+
+	/// 该版本结束生效的时间；当前版本通常使用远期时间。
+	column 失效时间
+		dataType: dateTime
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm:ss
+		lineageTag: ec2c5366-01da-41a3-9380-ac4006a53338
+		summarizeBy: none
+		sourceColumn: effective_to
+
+	/// 1 表示当前有效版本，0 表示历史版本。
+	column 是否当前
+		dataType: int64
+		isNullable: false
+		lineageTag: 154b5e28-d79a-4dbd-a76b-2cabca41327c
+		summarizeBy: none
+		sourceColumn: is_current
+
+	partition 商品版本历史 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT product_id, version_no, product_name, category_name, price, effective_from, effective_to, is_current FROM dim_product_scd2 FINAL WHERE is_deleted = 0 ORDER BY product_id, version_no")
+				in
+				    Source

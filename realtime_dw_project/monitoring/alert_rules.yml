@@ -1,0 +1,128 @@
+groups:
+  - name: realtime-dw-availability
+    rules:
+      - alert: RealtimeDwTargetDown
+        expr: up{job=~"flink-jobmanager|flink-taskmanager|kafka-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Realtime data warehouse target is down"
+          description: "Prometheus target {{ $labels.job }} has been unavailable for more than one minute."
+
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (consumergroup) (kafka_consumergroup_lag) > 10000
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Kafka consumer lag is high"
+          description: "Consumer group {{ $labels.consumergroup }} has lag above 10,000 for five minutes."
+
+      - alert: KafkaExporterMissing
+        expr: absent(up{job="kafka-exporter"})
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Kafka exporter metrics disappeared"
+          description: "Prometheus no longer has a Kafka exporter target."
+
+      - alert: LoaderDown
+        expr: up{job="clickhouse-loader"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "ClickHouse loader is down"
+          description: "Prometheus has been unable to scrape the ClickHouse loader for more than one minute."
+
+      - alert: LoaderWriteStalled
+        expr: (sum(kafka_consumergroup_lag{consumergroup="clickhouse_loader"}) > 0) and on() ((time() - clickhouse_loader_last_success_unixtime_seconds) > 300) and on() ((time() - clickhouse_loader_start_unixtime_seconds) > 300)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "ClickHouse loader has pending data but no successful writes"
+          description: "The loader consumer group still has lag and has not completed a ClickHouse insert for over five minutes."
+
+      - alert: LoaderPoisonMessageDetected
+        expr: increase(clickhouse_loader_decode_failures_total[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "The ClickHouse loader quarantined a poison message"
+          description: "At least one Kafka record failed decoding or validation and was routed to clickhouse_loader_dlq during the last five minutes."
+
+      - alert: LoaderDlqPublishFailed
+        expr: increase(clickhouse_loader_dlq_publish_failures_total[5m]) > 0
+        labels:
+          severity: critical
+        annotations:
+          summary: "The ClickHouse loader could not publish to its DLQ"
+          description: "A poison message could not be acknowledged by the DLQ, so its source offset remains uncommitted."
+
+      - alert: FlinkRunningJobCountUnexpected
+        expr: flink_jobmanager_numRunningJobs != 9
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Flink running job count is not nine"
+          description: "Expected nine demo jobs, but JobManager currently reports {{ $value }}."
+
+      - alert: FlinkCheckpointFailureDetected
+        expr: increase(flink_jobmanager_job_numberOfFailedCheckpoints[5m]) > 0
+        labels:
+          severity: warning
+        annotations:
+          summary: "A Flink checkpoint failed"
+          description: "Job {{ $labels.job_name }} recorded checkpoint failures in the last five minutes."
+
+      - alert: FlinkTaskBackpressureHigh
+        expr: max by (job_name) (flink_taskmanager_job_task_backPressuredTimeMsPerSecond) > 500
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Flink task backpressure is high"
+          description: "Job {{ $labels.job_name }} has spent more than half of each second backpressured for two minutes."
+
+      # A stale timestamp alone cannot distinguish normal zero traffic from an
+      # upstream outage. Business-data alerts therefore fire only after
+      # operators set PIPELINE_FRESHNESS_MONITOR_ENABLED=true on the exporter.
+      - alert: PipelineDataStale
+        expr: (pipeline_data_age_seconds > on() group_left pipeline_freshness_stale_threshold_seconds) and on() (pipeline_freshness_monitor_enabled == 1) and on() (pipeline_freshness_collection_success == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline business data is stale"
+          description: "{{ $labels.pipeline }} ({{ $labels.table }}) business data is {{ $value | humanizeDuration }} old. Alerting was explicitly enabled for this environment."
+
+      - alert: PipelineFreshnessCollectionFailed
+        expr: (pipeline_freshness_collection_success == 0) and on() (pipeline_freshness_monitor_enabled == 1)
+        for: 2m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline freshness collection is failing"
+          description: "The exporter cannot complete every ClickHouse freshness query."
+
+      - alert: PipelineFreshnessDataUnavailable
+        expr: (pipeline_data_available == 0) and on() (pipeline_freshness_monitor_enabled == 1)
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Pipeline freshness timestamp is unavailable"
+          description: "{{ $labels.pipeline }} ({{ $labels.table }}) has no business timestamp to monitor."
+
+      - alert: ExporterDown
+        expr: up{job="pipeline-freshness-exporter"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Pipeline freshness exporter is down"
+          description: "Prometheus cannot scrape the always-on freshness exporter infrastructure. This alert is independent of the business stale-data switch."

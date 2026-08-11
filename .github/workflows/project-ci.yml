@@ -1,0 +1,97 @@
+name: project-ci
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_tombstone_drill:
+        description: Verify MySQL DELETE -> Kafka tombstone -> ClickHouse soft delete and restore
+        required: true
+        default: true
+        type: boolean
+
+permissions:
+  contents: read
+
+jobs:
+  static-and-unit-tests:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: realtime_dw_project
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: realtime_dw_project/requirements.txt
+      - run: pip install -r requirements.txt
+      - run: python -m compileall scripts dashboard tests
+      - run: pytest -q
+      - run: bash -n scripts/*.sh
+      - run: python -m json.tool monitoring/grafana/dashboards/realtime-dw-overview.json >/dev/null
+      - run: docker compose config --quiet
+
+  integration-smoke:
+    if: github.event_name == 'workflow_dispatch'
+    needs: static-and-unit-tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    concurrency:
+      group: integration-smoke-${{ github.ref }}
+      cancel-in-progress: true
+    defaults:
+      run:
+        working-directory: realtime_dw_project
+    env:
+      DOCKER_BUILDKIT: "1"
+      COMPOSE_DOCKER_CLI_BUILD: "1"
+      CI_JOURNEYS: "300"
+      CI_ORDERS: "40"
+      RUN_TOMBSTONE_DRILL: ${{ inputs.run_tombstone_drill }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: realtime_dw_project/requirements.txt
+      - name: Restore Flink connector cache
+        uses: actions/cache@v4
+        with:
+          path: realtime_dw_project/flink-lib
+          key: flink-1.18-connectors-${{ runner.os }}-${{ hashFiles('realtime_dw_project/scripts/download_connectors.sh') }}
+      - name: Install smoke-test dependencies
+        run: pip install -r requirements.txt
+      - name: Run Docker integration smoke test
+        run: bash scripts/ci_integration_smoke.sh
+      - name: Upload successful acceptance evidence
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-smoke-evidence-${{ github.run_id }}
+          path: realtime_dw_project/artifacts/ci/quality-report.md
+          if-no-files-found: error
+          retention-days: 30
+      - name: Collect failure diagnostics
+        if: failure()
+        run: |
+          mkdir -p artifacts/ci
+          docker compose ps -a > artifacts/ci/compose-ps.txt 2>&1 || true
+          docker compose logs --no-color --timestamps > artifacts/ci/compose.log 2>&1 || true
+          docker stats --no-stream > artifacts/ci/docker-stats.txt 2>&1 || true
+          curl -fsS http://localhost:8081/jobs/overview > artifacts/ci/flink-jobs-overview.json 2>&1 || true
+          python scripts/quality_report.py --output artifacts/ci/quality-report-at-failure.md > artifacts/ci/quality-report-at-failure.log 2>&1 || true
+      - name: Upload failure diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-smoke-failure-${{ github.run_id }}
+          path: realtime_dw_project/artifacts/ci
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove integration containers and volumes
+        if: always()
+        run: docker compose down -v --remove-orphans

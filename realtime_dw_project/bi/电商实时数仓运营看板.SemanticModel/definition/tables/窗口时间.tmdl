@@ -1,0 +1,22 @@
+/// 覆盖四张 ADS 表所有不同窗口开始时间的统一筛选维度；一行代表一个窗口开始时间。
+table 窗口时间
+	lineageTag: 6cc58b9e-14f3-4ec6-87f2-7c5df9d03d14
+
+	/// 统一的窗口开始时间，用于筛选所有 ADS 事实表。
+	column 窗口开始
+		dataType: dateTime
+		isUnique
+		isNullable: false
+		formatString: yyyy-MM-dd HH:mm
+		lineageTag: af3ed5a0-a1f0-409a-bf84-ad7a62c35235
+		summarizeBy: none
+		sourceColumn: window_start
+
+	partition 窗口时间 = m
+		mode: import
+		source =
+				let
+				    ConnectionString = "Driver={ClickHouse ODBC Driver (Unicode)};Url=http://" & #"ClickHouse 主机" & ":" & #"ClickHouse 端口" & ";Database=" & #"ClickHouse 数据库" & ";Timeout=30;",
+				    Source = Odbc.Query(ConnectionString, "SELECT DISTINCT window_start FROM (SELECT window_start FROM ads_realtime_overview FINAL UNION ALL SELECT window_start FROM ads_product_rank FINAL UNION ALL SELECT window_start FROM ads_category_rank FINAL UNION ALL SELECT window_start FROM ads_channel_funnel FINAL) ORDER BY window_start")
+				in
+				    Source

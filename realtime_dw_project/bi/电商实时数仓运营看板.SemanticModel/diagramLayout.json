@@ -1,0 +1,139 @@
+{
+  "version": "1.1.0",
+  "diagrams": [
+    {
+      "ordinal": 0,
+      "scrollPosition": {
+        "x": 0,
+        "y": 0
+      },
+      "nodes": [
+        {
+          "location": {
+            "x": 50,
+            "y": 105.43130104623367
+          },
+          "nodeIndex": "实时经营总览",
+          "nodeLineageTag": "a96b39d0-bf2e-40dd-89af-866a0a5bcd8f",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 337.059168527321,
+            "y": 302.49330224718494
+          },
+          "nodeIndex": "窗口时间",
+          "nodeLineageTag": "6cc58b9e-14f3-4ec6-87f2-7c5df9d03d14",
+          "size": {
+            "height": 104,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 622.79957657109662,
+            "y": 370.259408243955
+          },
+          "nodeIndex": "品类表现",
+          "nodeLineageTag": "075cd7b7-fff1-419a-9e6c-587a974342c4",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 214.90107983548953,
+            "y": 459.21848366597067
+          },
+          "nodeIndex": "渠道漏斗",
+          "nodeLineageTag": "50d42474-8e93-4006-a43a-70ba0cea5262",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 337.13125907980822,
+            "y": -50
+          },
+          "nodeIndex": "商品表现",
+          "nodeLineageTag": "2040a30a-b4f3-4fb5-96ab-faedc0879468",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1190.9843277517266,
+            "y": 204.60924183298533
+          },
+          "nodeIndex": "订单每日指标",
+          "nodeLineageTag": "1d562561-6d28-42eb-86ed-7955d81de77f",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1475.1612159864565,
+            "y": 315.93423446542033
+          },
+          "nodeIndex": "订单日期",
+          "nodeLineageTag": "12cdbb6e-1860-44e3-ae19-f8fd7c8cb8d5",
+          "size": {
+            "height": 104,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 906.79957657109662,
+            "y": 283.67435101032726
+          },
+          "nodeIndex": "渠道",
+          "nodeLineageTag": "6bac1382-9e4d-4f75-8277-f31dd9fd9d1b",
+          "size": {
+            "height": 104,
+            "width": 234
+          },
+          "zIndex": 0
+        },
+        {
+          "location": {
+            "x": 1709.1612159864565,
+            "y": 254.60924183298533
+          },
+          "nodeIndex": "商品版本历史",
+          "nodeLineageTag": "abf1d4d4-9273-4d03-82bb-16e485cd316d",
+          "size": {
+            "height": 300,
+            "width": 234
+          },
+          "zIndex": 0
+        }
+      ],
+      "name": "所有表",
+      "zoomValue": 100,
+      "pinKeyFieldsToTop": false,
+      "showExtraHeaderInfo": false,
+      "hideKeyFieldsWhenCollapsed": false,
+      "tablesLocked": false
+    }
+  ],
+  "selectedDiagram": "所有表",
+  "defaultDiagram": "所有表"
+}

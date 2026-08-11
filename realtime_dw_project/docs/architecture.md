@@ -1,123 +1,136 @@
-# 电商用户行为实时数仓架构说明
+# 实时数仓架构与故障边界
 
 ## 1. 设计目标
 
-项目目标是用可在个人电脑运行的方式复现一条完整实时数据链路，并明确区分“已经实现的能力”和“生产环境仍需补充的能力”。
+在单机 Docker Desktop 中复现一条可验证的实时数仓链路，重点回答四个问题：数据怎样进入、更新怎样传播、失败怎样恢复、结果怎样证明正确。项目同时保留行为事件流和交易 CDC 流，用来展示 Append 与 Changelog 两类不同语义。
 
-已实现：
-
-- Kafka 接入和分层 Topic
-- Flink SQL 事件时间、Watermark、清洗、维表关联和窗口聚合
-- ClickHouse 明细与指标存储
-- Python 批量装载、质量报告和告警
-- Streamlit 运营展示
-
-## 2. 数据流
+## 2. 总体数据流
 
 ```mermaid
-flowchart LR
-    A[Python 模拟行为] --> B[Kafka ODS]
-    B --> C[Flink SQL Source]
-    C --> D[DWD 清洗]
-    M[MySQL 商品/店铺/地区维表] --> D
-    D --> E[Kafka DWD]
-    D --> F[1min/5min TUMBLE 聚合]
-    F --> G[Kafka ADS Topics]
-    E --> H[Python Batch Loader]
-    G --> H
-    H --> I[ClickHouse]
-    I --> J[Streamlit Dashboard]
-    I --> K[质量报告/告警]
+flowchart TB
+    subgraph behavior["行为事件流"]
+      PG["Python Journey Generator"] --> OUB["Kafka ods_user_behavior"]
+      OUB --> BC["Flink 校验 / Watermark / Lookup Join"]
+      BC --> DLQ["Kafka dwd_dirty_behavior"]
+      BC --> DUB["Kafka dwd_user_behavior"]
+      DUB --> BADS["Flink 窗口 / 严格漏斗"]
+      BADS --> BKT["4 个行为 ADS Topic"]
+    end
+
+    subgraph transaction["交易 CDC 流"]
+      MYSQL["MySQL 4 张交易表 + 商品 SCD2"] --> FCDC["Flink MySQL CDC"]
+      FCDC --> ODSC["5 个 Upsert ODS Topic"]
+      ODSC --> ODWD["订单明细 Changelog Join"]
+      ODWD --> DOD["Kafka dwd_order_detail"]
+      DOD --> OADS["订单级折叠 + 渠道/日期聚合"]
+      OADS --> OKT["2 个订单 ADS Topic"]
+    end
+
+    DLQ --> LOAD["Python Loader Service"]
+    DUB --> LOAD
+    BKT --> LOAD
+    DOD --> LOAD
+    OKT --> LOAD
+    ODSC --> LOAD
+    LOAD --> CH["ClickHouse Serving"]
+    CH --> BI["Power BI"]
+    CH --> DEV["Streamlit / 质量报告"]
 ```
 
-## 3. 时间语义
+## 3. 行为事件流
 
-ODS 中的 `event_time` 转换为 Flink `event_ts`。Source 定义：
+生成器为每次旅程提供稳定的 `session_id`、`order_id`、事件顺序和固定随机种子，并注入少量空主键、空用户和非法类型。Flink 将可解析但业务不合法的数据送入 DLQ，合法事件补充商品、店铺和地区属性后写 DWD。
+
+事件时间定义：
 
 ```sql
 WATERMARK FOR event_ts AS event_ts - INTERVAL '5' SECOND
 ```
 
-含义是允许 5 秒内的有限乱序。有限批次生成器按事件时间递增发送，并默认注入 3 秒抖动。Watermark 推进到窗口结束时间后，TUMBLE 窗口输出结果；超过 Watermark 的更晚数据可能无法进入已关闭窗口。
+这表示容忍有限乱序，不表示任何迟到数据都不会丢失。有限批次按事件时间递增发送，并只注入小于 Watermark 的抖动。
 
-## 4. 维表关联
+## 4. 交易 CDC 流
 
-MySQL 保存：
+MySQL 启用 ROW binlog 和 7 天保留，专用 `flink_cdc` 用户仅拥有 CDC 所需权限。一个 Flink StatementSet 同时捕获：
 
-| 维表 | 主键 | 主要属性 |
-| --- | --- | --- |
-| `dim_product` | `product_id` | 商品名、品类、价格 |
-| `dim_shop` | `shop_id` | 店铺名、地区 ID |
-| `dim_region` | `region_id` | 省份、城市 |
+- `order_info`
+- `order_detail`
+- `payment_info`
+- `refund_info`
+- `dim_product_scd2`
 
-Flink 使用 processing-time JDBC Temporal Join：
+ODS 使用 Upsert Kafka，主键相同的新值代表更新，tombstone 代表删除。DWD 从五个 Changelog Source 关联出订单明细宽表，状态变化会更新既有业务键，而不是追加一条互相矛盾的“最新状态”。五个 MySQL CDC Source 虽在同一 Flink 作业和 Checkpoint 节奏中运行，但各自维护快照/位点并输出到不同 Topic，不提供跨 Topic 原子可见性；订单、支付、退款的关联结果依靠 Changelog 持续更新后最终收敛。
+
+订单生成器先提交全部 `CREATED` 事实，再以独立事务提交支付/取消，最后单独提交退款，使 CDC 能真实观察 `CREATED → PAID/CANCELLED → REFUNDED`，而不是在同一批事务中直接看到终态。
+
+商品维度关联条件：
 
 ```sql
-LEFT JOIN dim_product FOR SYSTEM_TIME AS OF o.proc_time AS p
-ON o.product_id = p.product_id
+detail.product_id = dim.product_id
+AND order.create_time >= dim.effective_from
+AND order.create_time < dim.effective_to
 ```
 
-本实现没有配置 Lookup Cache，也没有 CDC。它读取维表当前可见状态，不能还原事件发生时的历史维度版本。
+因此调价后仍可回答“下单当时的商品目录价是多少”。
 
-## 5. 分层与持久化
+## 5. Flink 作业拆分
 
-| 层级 | 当前实现 |
-| --- | --- |
-| ODS | Kafka 原始行为 Topic |
-| DWD | Flink 清洗与维度补充；Kafka 和 ClickHouse 持久化 |
-| DWS | Flink SQL 窗口聚合逻辑，不单独落表 |
-| ADS | Kafka 结果 Topic 和 ClickHouse 指标表 |
+当前共 9 条作业：
 
-因此面试中应表述为“按 ODS-DWD-ADS 组织持久化层，DWS 是逻辑聚合层”，不要声称已经完整落地四层物理数仓。
+| 组 | 作业数 | 目的 |
+| --- | ---: | --- |
+| 行为 DLQ / DWD / ADS | 6 | 将故障和资源开销隔离，便于观察每类指标 |
+| MySQL CDC StatementSet | 1 | 统一编排五个独立 Source；共享 Checkpoint 节奏但不宣称跨表原子提交 |
+| 订单 DWD | 1 | 维护多表 Changelog Join 状态 |
+| 订单 ADS StatementSet | 1 | 从同一订单级结果输出渠道与日期两个口径 |
 
-## 6. 指标口径
+TaskManager 配置 16 个 Slot 以容纳本地演示。生产环境应按算子链、吞吐和状态大小设置并行度，不应照抄本地 Slot 数。
 
-| 指标 | 口径 |
-| --- | --- |
-| PV | 窗口内 `event_type='view'` 的事件数 |
-| UV | 窗口内发生 `view` 行为的去重用户数 |
-| 加购用户 | `cart` 的去重用户数 |
-| 下单用户 | `order` 的去重用户数 |
-| 支付用户 | `pay` 的去重用户数 |
-| 支付金额 | `pay` 事件的金额之和 |
-| 商品支付聚合 | 5 分钟内按商品统计支付次数与金额 |
-| 品类支付聚合 | 5 分钟内按品类统计支付次数、用户与金额 |
-| 渠道阶段人数 | 1 分钟内按渠道统计四类行为的去重用户数 |
+订单 DWD Join 与 ADS 聚合的状态 TTL 为 30 天，用来覆盖本项目退款观察窗口。生产值必须与业务允许的最晚退款时间对齐，并结合状态大小、Checkpoint 时长和存储容量评估；超过 TTL 才到达的极晚更新不能保证仍可与已清理状态关联。
 
-商品和品类 SQL 产出的是窗口内每个维度成员的聚合结果，不是 Flink TopN；Top 10 由 Streamlit 从最新窗口中选择。
+## 6. Checkpoint 与恢复
 
-渠道结果不具备严格漏斗的必要条件：模拟事件没有订单/会话标识，也不保证同一用户依次完成所有阶段。因此只用于阶段人数和比率比较。
+- 10 秒 Checkpoint。
+- Embedded RocksDB 状态后端。
+- Checkpoint 和 Savepoint 目录挂载到持久化卷。
+- 固定延迟重启，每 5 秒重试，最多 100 次。
+- Kafka Sink 使用事务性 Exactly-Once。
 
-## 7. ClickHouse 写入
+故障脚本先记录已有恢复日志数量，杀掉 TaskManager，再要求出现新的 `Restoring job ... from Checkpoint` 证据，最后等待 9 条作业及全部 Task 恢复 RUNNING。这样不会把旧日志或瞬时 RUNNING 状态误判为本次恢复成功。
 
-Flink 先将 DWD/ADS 输出到 Kafka，Python Loader 再按目标表缓存消息并批量发送 `JSONEachRow` HTTP 请求。批次写入成功后同步提交 Kafka offset。
+## 7. ClickHouse 装载语义
 
-这比逐行 HTTP 请求减少了请求次数，并避免自动提交导致“offset 已提交、数据尚未落库”的明显风险。但它仍不是端到端 Exactly Once：在写入成功、offset 提交失败的窗口内，重启可能重复写入。
+Compose 默认运行可重启的 `clickhouse-loader` 常驻服务；同一脚本仍可通过非零 `--idle-timeout` 和独立消费组执行有限批处理或故障回放。Loader 的顺序是：消费 → 分表缓冲 → 批量写入成功 → 同步提交 Kafka offset。若“写入成功但 offset 提交失败”，消息会重放；表通过稳定业务键、确定性的 `version_epoch + Kafka partition/offset` `ingest_version` 和 `ReplacingMergeTree` 接受重复物理写入，验收使用 `FINAL` 获取逻辑最新值。业务键必须保持 Kafka 分区稳定；若保留 ClickHouse 卷却重置 Kafka offset 或重分区，必须先递增 `CLICKHOUSE_LOADER_VERSION_EPOCH` 并完成迁移评审。
 
-## 8. ClickHouse 表引擎
+订单相关 Upsert Topic 的 tombstone 会转成 `is_deleted=1` 的软删除版本，防止下游无法表达撤回。
 
-- DWD 和告警使用 `MergeTree`
-- ADS 使用 `ReplacingMergeTree`
+`scripts/delete_tombstone_drill.py` 会先固定 `ods_order_info` 各分区的当前 end offset，再删除一张已落 DWD 的订单头，依次验证目标键的 ODS `value=null` tombstone、全部关联明细在 ClickHouse `FINAL` 中变为软删除；随后恢复源订单，并反向验证 ODS upsert 与 DWD 明细重新生效，用可回滚方式验证整条删除链路。
 
-`ReplacingMergeTree` 在后台合并时按排序键去除旧版本，不保证写入后立即只返回一行。Dashboard 对 ADS 查询使用 `FINAL`，以获得适合演示的稳定结果；大规模生产查询应使用版本列、聚合查询或其他建模方式控制成本。
+这提供的是最终一致和业务键逻辑幂等，不是 Kafka 与 ClickHouse 的两阶段提交。
 
-## 9. 数据质量
+## 8. Schema Evolution
 
-质量报告仅验证 ClickHouse DWD/ADS，不估算 Kafka ODS 行数：
+CDC Source 采用显式字段。`contracts/cdc_contracts.json` 以机器可读方式登记五张源表的字段类型、可空性、主键、ODS Topic、tombstone 删除语义和 `cross_table_consistency=eventual`；CI 会把它与 MySQL DDL、Flink Source/Sink DDL 逐字段比对。上游新增可空字段时，旧作业继续读取已有列，变更登记在 `cdc_schema_contract`；下游采用先加后用并通过 Savepoint 升级。删除、改名和类型收窄视为不兼容变更，不能自动传播。
 
-- 主键完整性与重复事件 ID
-- 合法事件类型
-- 商品、店铺、地区命中率
-- ADS 核心表非空
-- `UV <= PV`
+演练脚本可重复执行：字段不存在则添加，已存在则跳过 DDL，并验证 9 条作业持续健康。
 
-## 10. 生产化差距
+## 9. 可观测性
 
-- Kafka 多分区、多副本与容量规划
-- Flink Checkpoint、状态后端、重启策略和监控
-- 端到端一致性语义
-- MySQL CDC 与维度历史版本管理
-- JDBC Lookup Cache 或异步维表访问
-- 严格业务事件模型：`order_id`、`session_id`、事件序列和状态变更
-- 元数据、血缘、口径中心和调度治理
-- 密钥管理、权限隔离、审计与脱敏
+- Flink 暴露 JobManager/TaskManager 指标。
+- Kafka Exporter 暴露 Topic、消费组和 Lag。
+- ClickHouse Loader 在 `:9410/metrics` 暴露消费消息、成功写入行、插入失败、成功批次、最后成功时间和批次耗时。
+- Prometheus 拉取并执行告警规则。
+- Grafana 展示组件存活、Records、Checkpoint 与 Lag。
+- Alertmanager 接收、分组和路由告警。
+
+Loader 不可抓取超过 1 分钟触发 `LoaderDown`；默认 `clickhouse_loader` 消费组仍有 Lag 且超过 5 分钟没有成功写入时触发 `LoaderWriteStalled`，避免在正常无数据空闲期误报。
+
+本地 Alertmanager 未配置真实外部接收人；生产需要接入邮件、IM 或值班平台，并设置抑制、静默和升级策略。
+
+## 10. 明确边界
+
+- 单 Broker、单副本、单 JobManager、单 TaskManager，只能验证机制，不能证明高可用。
+- 本地卷不是跨节点容灾存储。
+- 行为 JDBC Lookup 读取处理时刻当前维度；交易 SCD2 才提供历史版本语义。
+- Python Loader 是教学和可解释实现，大吞吐生产应评估成熟 Connector。
+- DWS 没有单独物理表，不能宣称完整四层物理数仓。

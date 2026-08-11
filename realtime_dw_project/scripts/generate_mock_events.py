@@ -66,8 +66,14 @@ def build_event(event_time_offset=0, time_span_minutes=0, event_time=None):
             ts_offset = event_time_offset + random.randint(-time_span_minutes * 60, 0)
         event_time = datetime.now() + timedelta(seconds=ts_offset)
 
+    session_id = str(uuid.uuid4())
+    order_id = str(uuid.uuid4()) if event_type in ("order", "pay") else None
     return {
         "event_id": event_id,
+        "session_id": session_id,
+        "order_id": order_id,
+        "event_sequence": 1,
+        "event_version": 1,
         "user_id": user_id,
         "product_id": product_id,
         "shop_id": shop_id,

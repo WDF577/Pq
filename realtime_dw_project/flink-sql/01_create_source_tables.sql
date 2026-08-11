@@ -1,5 +1,9 @@
 CREATE TABLE ods_user_behavior (
   event_id STRING,
+  session_id STRING,
+  order_id STRING,
+  event_sequence INT,
+  event_version BIGINT,
   user_id BIGINT,
   product_id BIGINT,
   shop_id BIGINT,
@@ -32,8 +36,12 @@ CREATE TABLE dim_product (
   'connector' = 'jdbc',
   'url' = 'jdbc:mysql://mysql:3306/ecommerce?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai',
   'table-name' = 'dim_product',
-  'username' = 'root',
-  'password' = 'root'
+  'username' = 'flink_lookup',
+  'password' = 'flink_lookup',
+  'lookup.cache' = 'PARTIAL',
+  'lookup.partial-cache.max-rows' = '10000',
+  'lookup.partial-cache.expire-after-write' = '10 min',
+  'lookup.max-retries' = '3'
 );
 
 CREATE TABLE dim_shop (
@@ -45,8 +53,12 @@ CREATE TABLE dim_shop (
   'connector' = 'jdbc',
   'url' = 'jdbc:mysql://mysql:3306/ecommerce?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai',
   'table-name' = 'dim_shop',
-  'username' = 'root',
-  'password' = 'root'
+  'username' = 'flink_lookup',
+  'password' = 'flink_lookup',
+  'lookup.cache' = 'PARTIAL',
+  'lookup.partial-cache.max-rows' = '10000',
+  'lookup.partial-cache.expire-after-write' = '10 min',
+  'lookup.max-retries' = '3'
 );
 
 CREATE TABLE dim_region (
@@ -58,6 +70,10 @@ CREATE TABLE dim_region (
   'connector' = 'jdbc',
   'url' = 'jdbc:mysql://mysql:3306/ecommerce?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai',
   'table-name' = 'dim_region',
-  'username' = 'root',
-  'password' = 'root'
+  'username' = 'flink_lookup',
+  'password' = 'flink_lookup',
+  'lookup.cache' = 'PARTIAL',
+  'lookup.partial-cache.max-rows' = '1000',
+  'lookup.partial-cache.expire-after-write' = '10 min',
+  'lookup.max-retries' = '3'
 );

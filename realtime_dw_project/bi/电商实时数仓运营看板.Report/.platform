@@ -1,0 +1,11 @@
+{
+  "$schema": "https://developer.microsoft.com/json-schemas/fabric/gitIntegration/platformProperties/2.0.0/schema.json",
+  "metadata": {
+    "type": "Report",
+    "displayName": "电商实时数仓运营看板"
+  },
+  "config": {
+    "version": "2.0",
+    "logicalId": "2bd16d68-5058-4b75-ae91-fd33749a739c"
+  }
+}

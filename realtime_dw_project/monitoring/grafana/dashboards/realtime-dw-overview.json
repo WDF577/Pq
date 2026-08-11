@@ -1,0 +1,175 @@
+{
+  "annotations": {"list": []},
+  "editable": true,
+  "panels": [
+    {
+      "id": 1,
+      "type": "stat",
+      "title": "JobManager Up",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "up{job=\"flink-jobmanager\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 0}
+    },
+    {
+      "id": 2,
+      "type": "stat",
+      "title": "TaskManager Up",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "up{job=\"flink-taskmanager\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 0}
+    },
+    {
+      "id": 3,
+      "type": "stat",
+      "title": "Running Flink Jobs",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "flink_jobmanager_numRunningJobs", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 9}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 0}
+    },
+    {
+      "id": 4,
+      "type": "stat",
+      "title": "Available Task Slots",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "flink_jobmanager_taskSlotsAvailable", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "orange", "value": 1}, {"color": "green", "value": 3}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 0}
+    },
+    {
+      "id": 5,
+      "type": "timeseries",
+      "title": "Kafka Consumer Group Lag",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "sum by (consumergroup) (kafka_consumergroup_lag)", "legendFormat": "{{consumergroup}}", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 12, "x": 0, "y": 5}
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Flink Records In / Out",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "sum(rate(flink_taskmanager_job_task_numRecordsIn[1m]))", "legendFormat": "records in/s", "refId": "A"},
+        {"expr": "sum(rate(flink_taskmanager_job_task_numRecordsOut[1m]))", "legendFormat": "records out/s", "refId": "B"}
+      ],
+      "gridPos": {"h": 8, "w": 12, "x": 12, "y": 5}
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Checkpoint Duration by Job",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "flink_jobmanager_job_lastCheckpointDuration", "legendFormat": "{{job_name}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 8, "w": 8, "x": 0, "y": 13}
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Checkpoint Failures (5m)",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "increase(flink_jobmanager_job_numberOfFailedCheckpoints[5m])", "legendFormat": "{{job_name}}", "refId": "A"}],
+      "gridPos": {"h": 8, "w": 8, "x": 8, "y": 13}
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Backpressure by Job",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "max by (job_name) (flink_taskmanager_job_task_backPressuredTimeMsPerSecond)", "legendFormat": "{{job_name}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "ms"}},
+      "gridPos": {"h": 8, "w": 8, "x": 16, "y": 13}
+    },
+    {
+      "id": 10,
+      "type": "stat",
+      "title": "Freshness Monitoring Enabled",
+      "description": "Stale-data alerts are intentionally disabled unless this value is 1; data age alone cannot distinguish zero traffic from an upstream outage.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "pipeline_freshness_monitor_enabled", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "yellow"}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 0, "y": 21}
+    },
+    {
+      "id": 11,
+      "type": "stat",
+      "title": "Freshness Exporter Up",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "up{job=\"pipeline-freshness-exporter\"}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 6, "y": 21}
+    },
+    {
+      "id": 12,
+      "type": "stat",
+      "title": "Latest Freshness Collection",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "pipeline_freshness_collection_success", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 12, "y": 21}
+    },
+    {
+      "id": 13,
+      "type": "stat",
+      "title": "Seconds Since Successful Collection",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "time() - pipeline_freshness_last_success_unixtime_seconds", "refId": "A"}],
+      "fieldConfig": {"defaults": {"unit": "s", "thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "orange", "value": 60}, {"color": "red", "value": 300}]}}},
+      "gridPos": {"h": 5, "w": 6, "x": 18, "y": 21}
+    },
+    {
+      "id": 14,
+      "type": "timeseries",
+      "title": "End-to-End Business Data Age",
+      "description": "Latest ClickHouse business timestamp by representative DWD/ADS pipeline. Enable alerting only in known traffic/SLA windows.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [
+        {"expr": "pipeline_data_age_seconds", "legendFormat": "{{pipeline}} / {{table}}", "refId": "A"},
+        {"expr": "pipeline_freshness_stale_threshold_seconds", "legendFormat": "configured stale threshold", "refId": "B"}
+      ],
+      "fieldConfig": {"defaults": {"unit": "s"}},
+      "gridPos": {"h": 8, "w": 18, "x": 0, "y": 26}
+    },
+    {
+      "id": 15,
+      "type": "timeseries",
+      "title": "Freshness Timestamp Availability",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "pipeline_data_available", "legendFormat": "{{pipeline}}", "refId": "A"}],
+      "fieldConfig": {"defaults": {"min": 0, "max": 1, "thresholds": {"mode": "absolute", "steps": [{"color": "red"}, {"color": "green", "value": 1}]}}},
+      "gridPos": {"h": 8, "w": 6, "x": 18, "y": 26}
+    },
+    {
+      "id": 16,
+      "type": "stat",
+      "title": "Loader Poison Messages (5m)",
+      "description": "Records rejected during JSON decoding, required-field validation, or enrichment and routed to the compacted loader DLQ.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "increase(clickhouse_loader_decode_failures_total[5m])", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "orange", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 12, "x": 0, "y": 34}
+    },
+    {
+      "id": 17,
+      "type": "stat",
+      "title": "Loader DLQ Publish Failures (5m)",
+      "description": "A non-zero value means the bad source offset is intentionally left uncommitted until DLQ publication succeeds.",
+      "datasource": {"type": "prometheus", "uid": "prometheus"},
+      "targets": [{"expr": "increase(clickhouse_loader_dlq_publish_failures_total[5m])", "refId": "A"}],
+      "fieldConfig": {"defaults": {"thresholds": {"mode": "absolute", "steps": [{"color": "green"}, {"color": "red", "value": 1}]}}},
+      "gridPos": {"h": 5, "w": 12, "x": 12, "y": 34}
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 39,
+  "tags": ["flink", "kafka", "cdc", "data-warehouse"],
+  "templating": {"list": []},
+  "time": {"from": "now-30m", "to": "now"},
+  "timezone": "browser",
+  "title": "Real-time Data Warehouse Operations",
+  "uid": "rtdw-ops",
+  "version": 2
+}

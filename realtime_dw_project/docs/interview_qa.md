@@ -1,132 +1,125 @@
-# 面试问答：电商用户行为实时数仓
+# 面试问答：电商交易实时数仓
 
-## 1. 用一分钟介绍项目
+## 1. 一分钟介绍项目
 
-这是一个个人学习型实时数仓项目。我用 Python 生成浏览、加购、下单和支付事件，写入 Kafka ODS Topic；Flink SQL 基于事件时间和 Watermark 做清洗，通过 JDBC Temporal Join 关联 MySQL 商品、店铺和地区维表，输出 DWD 明细和 1 分钟/5 分钟窗口指标；结果先写回 Kafka，再由 Python 批量落入 ClickHouse，最后用 Streamlit 展示概览、商品品类聚合、渠道阶段人数和告警。项目由 Docker Compose 编排 6 个本地服务。
+这是一个企业化设计、单机可复现的电商实时数仓。我做了两条链路：第一条将带 `session_id/order_id` 的用户行为写入 Kafka，Flink SQL 基于事件时间完成清洗、维表补全、DLQ、窗口指标和严格漏斗；第二条从 MySQL 的订单、明细、支付、退款和商品 SCD2 表读取快照与 binlog，经 Upsert Kafka 构建订单明细 DWD 和生命周期 ADS。Flink 配置 RocksDB、10 秒 Checkpoint、重启策略和 Kafka Exactly-Once Sink；结果由常驻 Loader 显式提交 offset 并幂等写入 ClickHouse，坏消息经 broker 确认后进入独立 DLQ。Power BI 展示业务结果，Prometheus/Grafana/Alertmanager 监控运行状态和端到端业务数据年龄，并提供可手动触发的集成 CI 来验收完整数据面。它验证了 TaskManager 故障恢复、Schema 兼容变更、DELETE tombstone 和 24 项数据质量规则，但我会明确它是单机实验环境，不是生产高可用集群。
 
-## 2. 为什么使用 Kafka？
+## 2. 项目的核心亮点是什么？
 
-Kafka 把生产者、计算层和存储层解耦，并提供缓冲和可重放能力。生成脚本不需要知道 Flink 和 ClickHouse 的处理速度，Flink 结果也可以由不同消费组独立消费。当前 Demo 是单分区、单副本；生产环境需根据吞吐量设置分区和副本。
+不是组件数量，而是三个可验证能力：
 
-## 3. 数据分层如何落地？
+1. 业务表更新能经 CDC 和 Changelog 正确传播，而不是只处理 Append 日志。
+2. 商品调价后，订单能按下单时间命中 SCD2 历史价格。
+3. 故障、重放和字段新增都有脚本与验收证据，边界也说得清楚。
 
-- ODS：Kafka `ods_user_behavior`，保存原始 JSON
-- DWD：Flink 清洗并关联维表，写入 Kafka 和 ClickHouse
-- DWS：Flink 的 1 分钟/5 分钟窗口聚合逻辑，没有单独落表
-- ADS：4 类窗口结果写入 Kafka 和 ClickHouse
+## 3. 为什么既有行为流，又有订单 CDC 流？
 
-准确说法是“ODS-DWD-ADS 是持久化层，DWS 是逻辑聚合层”。
+行为日志主要是追加事件，适合 Watermark、窗口和漏斗；订单会从 CREATED 更新为 PAID、CANCELLED 或 REFUNDED，适合 CDC、Upsert 和撤回流。两者一起覆盖实时数仓常见的 Append 与 Changelog 语义。
 
-## 4. DWD 的粒度是什么？
+## 4. 为什么用 Kafka？
 
-一行代表“一个用户在一个时间点，对一个商品发生的一次行为”，业务键是 `event_id`。先确定粒度，再决定可以放哪些维度和度量，避免把不同粒度的数据混在同一事实表中。
+Kafka 解耦上游、计算和存储，提供削峰、持久化和重放。Flink 故障后可从 Checkpoint 记录的 offset 恢复；多个下游也能使用不同消费组独立读取。当前 3 分区是为了展示并行与 key 路由，但只有单 Broker、单副本，不能称为高可用。
 
-## 5. Watermark 有什么作用？
+## 5. ODS、DWD、DWS、ADS 怎样落地？
 
-Watermark 用于事件时间计算中的乱序处理。本项目：
+- ODS：Kafka 原始行为和 5 个 MySQL Upsert Topic。
+- DWD：清洗补维后的行为明细，以及订单/支付/退款/SCD2 关联后的订单明细宽表，落 Kafka 与 ClickHouse。
+- DWS：Flink 内部的窗口或订单级聚合逻辑，没有单独物理表。
+- ADS：行为经营指标、严格漏斗、订单生命周期和每日渠道指标，落 Kafka 与 ClickHouse。
 
-```sql
-WATERMARK FOR event_ts AS event_ts - INTERVAL '5' SECOND
-```
+所以准确说法是“ODS-DWD-ADS 持久化，DWS 为逻辑层”。
 
-表示允许 5 秒有限乱序。有限批次生成器按事件时间递增发送并默认注入 3 秒抖动，Watermark 超过窗口结束时间时触发结果。更晚到达的数据可能错过已关闭窗口，这是当前配置的取舍。
+## 6. 订单 DWD 为什么选择明细粒度？
 
-## 6. Temporal Join 关联的是什么状态？
+一张订单可以有多个商品，商品分析需要明细粒度，所以业务键是 `detail_id`。但是订单数和支付金额不能直接对明细求和，否则多明细订单会重复。ADS 先按 `order_id` 折叠为一行，再按渠道或日期聚合。
 
-项目使用 processing-time JDBC Temporal Join：
+## 7. CDC 捕获哪些表，怎样表达更新？
 
-```sql
-LEFT JOIN dim_product FOR SYSTEM_TIME AS OF o.proc_time AS p
-```
+捕获 `order_info`、`order_detail`、`payment_info`、`refund_info`、`dim_product_scd2`。Flink CDC 读取初始快照和 MySQL ROW binlog，ODS 使用 Upsert Kafka：同一主键的新 value 覆盖旧值，删除用 tombstone。下游 Flink 读取 Changelog 后维护最新关联结果。
 
-它关联处理时刻可见的 MySQL 维表状态。当前没有配置 Lookup Cache、CDC 或 SCD2，因此不能声称还原事件发生时的历史维度版本。
+五个 Source 放在同一作业便于统一运维和 Checkpoint，但它们各自维护快照/位点并写不同 Topic，不能说跨表原子可见。订单与支付短暂先后到达是预期现象，Changelog Join 会在两边更新到达后最终收敛。
 
-## 7. 为什么用 LEFT JOIN？
+## 8. SCD2 是怎样实现的？
 
-维表未命中时仍保留行为明细，便于在质量报告中发现商品、店铺或地区维度缺失。如果使用 INNER JOIN，未命中数据会被直接丢弃，业务量可能悄悄减少。
+商品调价时，在一个事务里关闭旧版本：`effective_to=调价时间`、`is_current=0`；再插入新版本：版本号加一、`effective_from=调价时间`、`is_current=1`。订单 DWD 用 `order_create_time >= effective_from AND order_create_time < effective_to` 关联，因此可以还原下单时目录价。质量规则检查每个商品恰好一个当前版本、区间不重叠、成交价与命中版本一致。
 
-## 8. PV、UV 的准确口径是什么？
+## 9. 为什么 SCD2 使用左闭右开区间？
 
-- PV：窗口内 `event_type='view'` 的事件数
-- UV：窗口内发生 `view` 行为的去重用户数
+在调价边界时刻，旧版本不再有效，新版本开始有效。`[from,to)` 可以保证任意时间最多命中一个版本，避免两个闭区间在边界同时命中。
 
-之前使用 `COUNT(*)` 会把加购、下单和支付也算进 PV，口径错误，现已改为条件聚合。
+## 10. Watermark 有什么作用？
 
-## 9. 商品排行是 Flink TopN 吗？
+行为源定义 `event_ts - 5 秒` 的 Watermark，用来在事件时间计算中容忍有限乱序并推动窗口关闭。它不是“迟到数据永不丢失”的保证；超过容忍范围的数据可能错过已关闭窗口。生成器按事件时间递增发送，只注入有限抖动来匹配这一口径。
 
-不是。Flink SQL 产出的是“5 分钟窗口 + 商品”的支付次数和支付金额聚合，表中没有排名字段。Streamlit 从最新窗口数据中取支付金额 Top 10。
+## 11. 行为维表为什么用 Processing-time Temporal Lookup？
 
-如果要在 Flink 中实现真正 TopN，需要在窗口聚合之后使用 `ROW_NUMBER() OVER (PARTITION BY window_start, window_end ORDER BY pay_amount DESC)`，再筛选 `rn <= 10`。
+商品、店铺、地区是低频查询维度，JDBC Lookup 配合 Partial Cache 可以降低 MySQL 压力。它返回处理时刻的当前值，不保证历史版本；需要历史语义的商品价格在交易链路里通过 CDC + SCD2 单独实现。能解释这两个语义差异比统一使用一种 Join 更重要。
 
-## 10. 渠道漏斗是严格漏斗吗？
+## 12. 为什么用 LEFT JOIN？
 
-不是严格路径漏斗。当前表分别统计同一窗口、同一渠道下 view/cart/order/pay 的去重用户数，可以做阶段人数与比率对比，但不能证明支付用户一定属于浏览用户集合。
+维表未命中时仍保留事实，质量报告才能暴露缺失；INNER JOIN 会静默丢事实并让业务量变小。订单 DWD 里的强业务关系则通过质量规则要求支付/退款状态一致。
 
-严格漏斗需要增加 `session_id` 或 `order_id`、构造可追踪事件序列，并明确跨窗口归因规则。这是我识别到的模型边界。
+## 13. 严格漏斗怎样计算？
 
-## 11. 为什么结果先写 Kafka，再由 Python 写 ClickHouse？
+同一 `session_id` 在 30 分钟窗口内先提取每个阶段最早时间，再要求 `view_ts <= cart_ts <= order_ts <= pay_ts`。因此支付会话一定属于上游集合。边界是跨固定窗口的长会话可能不完整，生产可评估 Session Window、CEP 或离线归因修正。
 
-这样便于拆分 Flink 计算和存储装载，出现问题时可以分别检查 Kafka 结果 Topic 和 ClickHouse。
+## 14. 商品榜是不是 Flink TopN？
 
-当前 Loader 按表批量写入 ClickHouse，成功后同步提交 Kafka offset，较逐行 HTTP 和自动提交更稳。但它仍不是端到端 Exactly Once；写入成功而 offset 提交失败时可能重复写入。生产环境可使用成熟 Flink ClickHouse Connector、幂等键或事务性方案。
+不是。Flink 输出的是“5 分钟窗口 + 商品”的聚合结果，展示层选择最新窗口的 Top 10。真正 Flink TopN 需要窗口聚合后使用 `ROW_NUMBER() OVER (PARTITION BY window ORDER BY amount DESC)` 并筛选 `rn <= 10`。
 
-## 12. ReplacingMergeTree 能保证立即去重吗？
+## 15. Exactly-Once 做到了哪一段？
 
-不能。ReplacingMergeTree 在后台 Merge 时按排序键替换旧版本，合并是异步的。本项目 Dashboard 对 ADS 查询使用 `FINAL` 获得稳定演示结果。生产环境应评估 `FINAL` 成本，并通过版本列或聚合查询设计稳定读取口径。
+Kafka → Flink → Kafka 通过 Checkpoint 和事务性 Kafka Sink 使用 Exactly-Once。Kafka → Python Loader → ClickHouse 没有分布式事务：Loader 写成功后提交 offset，失败时允许重放；ClickHouse 用业务键和由 Loader epoch + Kafka partition/offset 确定性生成的版本列逻辑去重，使旧 offset 的历史重放不会覆盖新值。因此后半段是最终一致和逻辑幂等，不能称端到端 Exactly-Once。
 
-## 13. 数据质量怎么验证？
+## 16. ReplacingMergeTree 会立即去重吗？
 
-质量报告验证 ClickHouse 服务层：
+不会。后台 Merge 是异步的，项目验收使用 `FINAL` 读取逻辑最新版本。大表生产查询不能无条件依赖 `FINAL`，应评估物化视图、版本聚合、分区设计或专用 Connector。
 
-- DWD 是否有数据
-- 空事件 ID、非法事件类型
-- 重复事件 ID
-- 商品、店铺、地区维表命中率
-- 4 类 ADS 是否有数据
-- 是否存在 `UV > PV`
+## 17. TaskManager 故障怎样验证？
 
-ODS 位于 Kafka，报告不再用 DWD 行数假装 ODS 行数，也不虚构清洗率。
+脚本先确认 9 条 Job 和全部 Task 健康，再记录恢复日志计数，杀掉 TaskManager，由 Compose 显式重拉。脚本必须看到本次新增的 `Restoring job ... from Checkpoint`，再等待 9 条作业恢复，最后用新消费组重放并执行 21 项业务验收。这样同时证明状态恢复与结果幂等，而不是只看容器重新启动。
 
-## 14. 为什么维表命中率不是 100%？
+## 18. Schema Evolution 怎么做？
 
-模拟器会注入不存在的商品或店铺 ID，用于验证 LEFT JOIN 和质量检查。未命中记录保留在 DWD，维度字段为空。实际业务中需要根据场景选择补默认维度、进入隔离区、延迟重试或阻断下游。
+新增可空字段属于兼容变更：上游先加字段并登记 `cdc_schema_contract`，显式旧 Schema 的 Flink 作业继续运行；要使用新字段时，先扩展 Kafka/ClickHouse/语义模型，再通过 Savepoint 升级作业。删除、改名和类型收窄是不兼容变更，需要双写或迁移期，不能自动透传。
 
-## 15. 遇到过哪些工程问题？
+## 19. 数据质量检查什么？
 
-可以重点讲一个，按“现象-定位-原因-解决-验证”回答：
+质量报告共 24 项，覆盖主键、合法枚举、维表命中、漏斗单调、支付与退款一致性、SCD2 唯一当前版本与区间不重叠、历史价格命中、订单 ADS 金额和数量关系。Kafka 重放后还要验证 ClickHouse `FINAL` 口径业务键不膨胀。
 
-1. 第 5 个 Flink Job 失败
-2. 查看 Web UI 和日志，确认可用 Slot 不足
-3. 原因是 5 个 Job 并行运行超过默认 Slot
-4. 调整 TaskManager Slot 配置
-5. 重新提交并用 `flink list`、Kafka Topic 和 ClickHouse 行数验证
+## 20. 你实际解决过什么问题？
 
-其他实际问题包括 Python 3.12 客户端兼容、MySQL 端口冲突、SQL Client 注释解析和 ClickHouse 返回类型导致看板渲染失败。
+推荐讲 SCD2 重复压测问题：首次演练完全正确，但连续调价后出现历史价格不匹配。定位发现生成器每次都把订单时间回填到过去一小时，却使用运行时当前价格，导致事件时间落入旧版本区间。修复为每次运行使用真实插入时间，在调价边界隔开毫秒，并用干净重建 + 历史价格质量规则回归。这说明问题不在 Join 语法，而在事实时间与维度有效时间必须使用同一业务口径。
 
-另一个关键问题是：早期生成器把过去 2 小时事件完全随机发送，而 Watermark 只允许 5 秒，导致大量 ADS 数据被判定为迟到。修复方式是有限批次按事件时间递增发送，只注入 3 秒抖动，再通过 ADS 行数和窗口分布验证。
+另一个可讲问题是 Flink SQL Client 遇到 SQL 错误仍可能返回进程码 0；一键脚本现在同时检查 native exit code 和输出中的 `[ERROR]`，并分阶段提交 SQL，避免等待不存在的 9 条作业直至超时。
 
-## 16. 如果把项目用于生产，还缺什么？
+删除语义也不是口头说明：演练会删除订单头，要求关联 DWD 明细收到 tombstone 并在 ClickHouse 变为 `is_deleted=1`，随后恢复源订单并验证重新生效。它同时暴露过“使用装载时间作版本会让旧消息重放覆盖新值”的风险，因此版本改成确定性的 Kafka 位置。
 
-- Flink Checkpoint、状态后端、重启策略
-- Kafka 多分区、多副本和容量规划
-- 端到端一致性、幂等和补数机制
-- MySQL CDC、SCD2 或维度版本管理
-- 监控 Kafka Lag、Flink 延迟和失败率
-- 元数据、血缘、口径中心和数据质量告警
-- 权限、密钥、审计和敏感数据治理
+## 21. 为什么没有再加入 Hadoop、Hive、Spark、Airflow？
 
-## 17. 如何从业务需求设计数据模型？
+当前目标是单机实时 CDC 和 Serving 链路，没有大规模离线历史批处理或复杂离线 DAG。Flink 已承担实时计算，继续加入第二套引擎只会增加伪复杂度。企业级是每个组件解决明确问题，不是堆名词。
 
-先明确业务过程和问题，例如“分析渠道在不同阶段的用户人数”；再确定事实粒度；然后识别维度、度量和时间口径；最后设计 DWD 与 ADS，并列出数据质量规则。
+## 22. 如果上生产还缺什么？
 
-本项目的例子：
+- Kafka 多 Broker、多副本、ISR 与容量规划。
+- JobManager HA、多个 TaskManager、Kubernetes 和远端对象存储 Checkpoint。
+- Schema Registry、元数据、血缘、指标口径中心和补数平台。
+- 成熟 ClickHouse Connector 或更强的端到端一致性设计。
+- 权限、密钥、审计、脱敏与真实告警通知闭环。
+- 压测、容量模型、SLA/SLO 和跨可用区容灾。
 
-- 业务过程：用户商品行为
-- 事实粒度：一次行为事件
-- 维度：用户、商品、店铺、地区、渠道、时间
-- 度量：事件次数、用户数、支付金额
-- 输出粒度：1 分钟概览、5 分钟商品/品类、1 分钟渠道
+## 23. 这个项目最值得表达的收获是什么？
 
-## 18. 你在项目中的最大收获是什么？
+实时数仓的可信度不取决于 SQL 写了多少，而取决于粒度、时间语义、更新语义和失败边界是否一致。能解释为什么多明细订单先折叠、为什么 SCD2 用事件时间、为什么重放不等于端到端 Exactly-Once，比只说“熟悉 Kafka/Flink”更有说服力。
 
-不是“把组件都跑起来”，而是理解了指标可信度依赖三件事：先定义粒度和口径，再保证链路可验证，最后明确系统边界。修正 PV、识别非严格漏斗、区分聚合和 TopN，都是从“能运行”走向“能解释”的过程。
+## 24. Loader 遇到一条坏消息为什么不会无限重启？
+
+Loader 会捕获 JSON 解码、非对象、必填字段缺失，以及与 ClickHouse 表映射不符的整数、Decimal、日期和时间格式，把源 topic/partition/offset、原始 key/value Base64、错误信息和确定性 SHA-256 消息 ID 写入 `clickhouse_loader_dlq`。只有 DLQ 获得 broker ACK 后，该消息的 `offset + 1` 才进入显式提交集合；DLQ 发布失败不会推进源 offset。DLQ 使用纯 `compact`，消息 ID 是 key，因此保留每条异常最新的 `pending/replayed` 状态且不按时间删除；代价是需要容量监控和审计归档。修复工具默认只读且隐藏 payload，执行回放必须完整扫描到各非空分区当时 high watermark，并指定单条 ID、修复方式和 `--execute`；扫描不完整会拒绝写入。它还拒绝未知 envelope 版本，并用目标 Topic 的同一套 Loader 规则预检修复后的 payload，避免无效回放再次进 DLQ。
+
+## 25. 怎样判断“链路没有积压但业务数据已经不更新”？
+
+Kafka Lag 为 0 只能说明消费追上了，不能证明上游仍在产数。独立 Freshness Exporter 查询行为 DWD、订单 DWD 和实时 ADS 的最大业务时间，暴露 `pipeline_data_age_seconds`、采集成功和时间戳可用性。数据年龄变大既可能是断流，也可能是正常静默，所以陈旧告警默认关闭；只有在明确持续流量或 SLA 时间窗时才显式启用。这比无条件设置一个“5 分钟没数据就报警”更可信。
+
+## 26. CI 为什么不在每次提交都启动完整 Flink 链路？
+
+push/PR 运行 Python 单测、Shell/JSON/Compose 静态检查，反馈快且资源稳定。完整链路需要 Kafka、MySQL、Flink、ClickHouse 和 Connector 下载，放在 `workflow_dispatch` 手动集成任务：验证 9 条 Job、9 个查询输出、tombstone 删除恢复和 24 项质量规则，成功上传质量报告，失败保存容器日志与 Flink 作业快照。这样把快速门禁与重型验收分层，而不是让每次小改动都承担 30～40 分钟成本。
