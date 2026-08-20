@@ -84,6 +84,8 @@ erDiagram
 | ADS | `ads_channel_funnel` | 30 分钟窗口 + 渠道一行 |
 | ADS | `ads_order_lifecycle` | 渠道一行最新生命周期指标 |
 | ADS | `ads_order_daily` | 日期 + 渠道一行 |
+| 离线 ADS | Parquet `ads_order_daily/order_date=...` | 日期 + 渠道一行；Spark 回补结果 |
+| 对账 | Parquet `reconciliation/order_daily` | 日期 + 渠道一行；离线/实时逐指标比较 |
 
 ## 6. 行为指标
 
@@ -108,6 +110,8 @@ erDiagram
 - `refund_amount`：成功退款金额；每张订单只统计一次。
 
 一致性约束：`refunded_orders <= paid_orders <= total_orders`、`cancelled_orders <= total_orders`、`0 <= refund_amount <= paid_amount`。
+
+Spark SQL 复用同一订单级口径，但从 MySQL 事务事实独立重算。回补参数使用 `[start_date,end_date)`，输出按 `order_date` 动态覆盖；与 ClickHouse `ads_order_daily FINAL` 通过日期、渠道全外连接，任意一侧缺行或七项指标不一致均判定失败。
 
 ## 8. 删除与版本
 

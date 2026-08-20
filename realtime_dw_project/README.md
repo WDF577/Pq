@@ -4,8 +4,9 @@
 
 ## 本目录包含
 
-- `docker-compose.yml`：12 个长期运行容器和 1 个初始化服务（含可重启 ClickHouse Loader 与 Freshness Exporter）
+- `docker-compose.yml`：12 个长期运行容器、1 个初始化服务和 `batch` profile 下的按需 Spark 任务
 - `flink-sql/`：行为流与 MySQL CDC 的 ODS、DWD、ADS SQL
+- `spark-sql/`：按日期离线回补、分区 Parquet 与实时/离线指标对账
 - `contracts/`：五张 CDC 源表的字段、主键、Topic、删除语义和最终一致性契约
 - `scripts/`：初始化、分阶段订单生成、常驻/批量装载、DELETE tombstone、Schema 演练、恢复、压测与验收
 - `bi/`：Power BI 业务看板；`dashboard/`：Streamlit 开发诊断页
@@ -21,6 +22,12 @@ python3 -m streamlit run dashboard/app.py
 ```
 
 > `run_demo.sh` 会重建容器和数据卷，只应在本地 Demo 环境运行。
+
+离线回补单独按需执行，不会成为长期服务：
+
+```powershell
+.\scripts\run_spark_backfill.ps1 -StartDate 2026-08-11 -EndDate 2026-08-12
+```
 
 ## Power BI 看板
 

@@ -26,6 +26,7 @@ realtime_dw_project/artifacts/*
 !realtime_dw_project/artifacts/benchmark_20260811_153602.md
 !realtime_dw_project/artifacts/fault_recovery_20260811_153947.md
 !realtime_dw_project/artifacts/enterprise_quality_report.md
+!realtime_dw_project/artifacts/spark_reconciliation_report.md
 !realtime_dw_project/artifacts/powerbi_after/
 realtime_dw_project/artifacts/powerbi_after/*
 !realtime_dw_project/artifacts/powerbi_after/实时经营总览.png

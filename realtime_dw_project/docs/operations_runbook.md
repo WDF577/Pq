@@ -137,7 +137,17 @@ Windows 参考实现会记录增量 Kafka offset、并发 ClickHouse 装载和�
 
 GitHub Actions 的 push/PR 只执行快速单测和静态检查。需要云端完整证据时，在 `project-ci` 工作流手动运行 `integration-smoke`；它会启动核心数据面、提交 9 条作业、生成小批数据、执行 tombstone 删除/恢复和 24 项质量规则，成功上传质量报告，失败上传 Compose/Flink 诊断，最后清理 Runner 的临时卷。
 
-## 7. 正常停止
+## 7. Spark SQL 历史回补与对账
+
+Spark 是 `batch` profile 下的一次性任务，不随 `docker compose up -d` 常驻。日期范围为左闭右开：
+
+```powershell
+.\scripts\run_spark_backfill.ps1 -StartDate 2026-08-11 -EndDate 2026-08-12
+```
+
+正常结果应输出 `mismatches=0`，并生成 `artifacts/spark_reconciliation_report.md`。任务默认遇到差异返回非零；排查时可暂用 `-AllowMismatch` 保存差异，但验收和简历证据必须使用 PASS 报告。相同日期重复执行后，可用 Spark SQL 读取 `data/spark-warehouse/ads_order_daily`，行数不应膨胀。
+
+## 8. 正常停止
 
 ```bash
 docker compose stop

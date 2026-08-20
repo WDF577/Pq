@@ -298,6 +298,45 @@ services:
       - ./monitoring/grafana/dashboards:/var/lib/grafana/dashboards:ro
     networks: [rtdw]
 
+  spark-backfill:
+    image: apache/spark:3.5.9-scala2.12-java17-python3-ubuntu
+    profiles: ["batch"]
+    depends_on:
+      mysql:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    environment:
+      MYSQL_JDBC_URL: jdbc:mysql://mysql:3306/${MYSQL_DATABASE:-ecommerce}?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=Asia/Shanghai
+      MYSQL_USER: ${SPARK_MYSQL_USER:-spark_batch}
+      MYSQL_PASSWORD: ${SPARK_MYSQL_PASSWORD:-spark_batch}
+      CLICKHOUSE_URL: http://clickhouse:8123
+      CLICKHOUSE_USER: ${CLICKHOUSE_USER:-default}
+      CLICKHOUSE_PASSWORD: ${CLICKHOUSE_PASSWORD:-clickhouse}
+      BUSINESS_TIMEZONE: Asia/Shanghai
+      SPARK_WAREHOUSE_ROOT: /opt/rtdw/warehouse
+      SPARK_REPORT_PATH: /opt/rtdw/artifacts/spark_reconciliation_report.md
+    entrypoint: ["/opt/spark/bin/spark-submit"]
+    command:
+      - --master
+      - local[2]
+      - --driver-memory
+      - ${SPARK_DRIVER_MEMORY:-1g}
+      - --jars
+      - /opt/spark/jars/mysql-connector-j-8.3.0.jar
+      - --conf
+      - spark.sql.shuffle.partitions=${SPARK_SHUFFLE_PARTITIONS:-4}
+      - /opt/rtdw/spark-sql/run_order_daily_backfill.py
+    volumes:
+      - ./spark-sql:/opt/rtdw/spark-sql:ro
+      - ./flink-lib/mysql-connector-j-8.3.0.jar:/opt/spark/jars/mysql-connector-j-8.3.0.jar:ro
+      - ./data/spark-warehouse:/opt/rtdw/warehouse
+      - ./artifacts:/opt/rtdw/artifacts
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    networks: [rtdw]
+
 networks:
   rtdw:
     name: rtdw_network

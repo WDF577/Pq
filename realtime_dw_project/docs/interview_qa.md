@@ -2,7 +2,7 @@
 
 ## 1. 一分钟介绍项目
 
-这是一个企业化设计、单机可复现的电商实时数仓。我做了两条链路：第一条将带 `session_id/order_id` 的用户行为写入 Kafka，Flink SQL 基于事件时间完成清洗、维表补全、DLQ、窗口指标和严格漏斗；第二条从 MySQL 的订单、明细、支付、退款和商品 SCD2 表读取快照与 binlog，经 Upsert Kafka 构建订单明细 DWD 和生命周期 ADS。Flink 配置 RocksDB、10 秒 Checkpoint、重启策略和 Kafka Exactly-Once Sink；结果由常驻 Loader 显式提交 offset 并幂等写入 ClickHouse，坏消息经 broker 确认后进入独立 DLQ。Power BI 展示业务结果，Prometheus/Grafana/Alertmanager 监控运行状态和端到端业务数据年龄，并提供可手动触发的集成 CI 来验收完整数据面。它验证了 TaskManager 故障恢复、Schema 兼容变更、DELETE tombstone 和 24 项数据质量规则，但我会明确它是单机实验环境，不是生产高可用集群。
+这是一个企业化设计、单机可复现的电商实时数仓。我做了两条实时链路：行为日志由 Flink SQL 完成事件时间清洗、窗口和严格漏斗；MySQL 订单经 Flink CDC、Upsert Kafka 构建订单 DWD/ADS。结果由显式 offset 的 Loader 幂等写 ClickHouse，Power BI 展示，Prometheus/Grafana 监控。针对历史补数，我另外用 Spark SQL 从 MySQL 按日期独立重算订单日指标，以动态分区覆盖写 Parquet，并和实时 ADS 全外连接对账。项目验证了故障恢复、坏数据回放、Schema 变更、tombstone、24 项质量规则和批流一致性，但我会明确它是单机实验环境，不是生产高可用集群。
 
 ## 2. 项目的核心亮点是什么？
 
@@ -95,9 +95,9 @@ Kafka → Flink → Kafka 通过 Checkpoint 和事务性 Kafka Sink 使用 Exact
 
 删除语义也不是口头说明：演练会删除订单头，要求关联 DWD 明细收到 tombstone 并在 ClickHouse 变为 `is_deleted=1`，随后恢复源订单并验证重新生效。它同时暴露过“使用装载时间作版本会让旧消息重放覆盖新值”的风险，因此版本改成确定性的 Kafka 位置。
 
-## 21. 为什么没有再加入 Hadoop、Hive、Spark、Airflow？
+## 21. 为什么同时使用 Flink SQL 和 Spark SQL？
 
-当前目标是单机实时 CDC 和 Serving 链路，没有大规模离线历史批处理或复杂离线 DAG。Flink 已承担实时计算，继续加入第二套引擎只会增加伪复杂度。企业级是每个组件解决明确问题，不是堆名词。
+Flink 负责持续增量、事件时间、Changelog 和实时 ADS；Spark 只在需要时按日期范围重算历史订单指标。离线侧直接读取 MySQL 事务事实而不是实时 DWD，再与 ClickHouse ADS 做全外连接，因此能独立发现实时漏算、重复或口径漂移。相同范围使用动态分区覆盖，重复运行不会追加。当前只有一个批任务，所以没有为了名词继续引入 Hadoop/Hive/Airflow。
 
 ## 22. 如果上生产还缺什么？
 
@@ -123,3 +123,7 @@ Kafka Lag 为 0 只能说明消费追上了，不能证明上游仍在产数。�
 ## 26. CI 为什么不在每次提交都启动完整 Flink 链路？
 
 push/PR 运行 Python 单测、Shell/JSON/Compose 静态检查，反馈快且资源稳定。完整链路需要 Kafka、MySQL、Flink、ClickHouse 和 Connector 下载，放在 `workflow_dispatch` 手动集成任务：验证 9 条 Job、9 个查询输出、tombstone 删除恢复和 24 项质量规则，成功上传质量报告，失败保存容器日志与 Flink 作业快照。这样把快速门禁与重型验收分层，而不是让每次小改动都承担 30～40 分钟成本。
+
+## 27. Spark 回补怎样保证幂等，怎样判断批流一致？
+
+回补范围使用 `[start_date,end_date)`，Spark 配置动态分区覆盖，只替换本次产出的 `order_date` 分区；所以同一区间重复运行不会追加重复。对账以日期和渠道做 FULL OUTER JOIN，并逐项比较订单数、支付/取消/退款数和三类金额。一侧缺行也会暴露，而 INNER JOIN 会把缺失静默过滤。实测同一区间连续跑两次，离线和实时都是 5 行，差异为 0，Parquet 仍为 5 行。

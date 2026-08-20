@@ -35,6 +35,10 @@ flowchart TB
     LOAD --> CH["ClickHouse Serving"]
     CH --> BI["Power BI"]
     CH --> DEV["Streamlit / 质量报告"]
+    MYSQL --> SB["Spark SQL 日期范围重算"]
+    SB --> PQ["分区 Parquet 离线 ADS"]
+    CH --> REC["Spark SQL 全外连接对账"]
+    SB --> REC
 ```
 
 ## 3. 行为事件流
@@ -134,3 +138,4 @@ Loader 不可抓取超过 1 分钟触发 `LoaderDown`；默认 `clickhouse_loade
 - 行为 JDBC Lookup 读取处理时刻当前维度；交易 SCD2 才提供历史版本语义。
 - Python Loader 是教学和可解释实现，大吞吐生产应评估成熟 Connector。
 - DWS 没有单独物理表，不能宣称完整四层物理数仓。
+- Spark 使用 `local[2]` 按需容器和本地 Parquet，只验证历史回补、幂等分区覆盖与批流对账语义，不宣称分布式离线湖仓。

@@ -1,4 +1,4 @@
-# 电商实时数仓：Kafka + Flink CDC + ClickHouse
+# 电商批流一体数仓：Kafka + Flink CDC + Spark SQL + ClickHouse
 
 这是一个可在个人电脑完整复现的企业化实时数仓实验项目。它不是把组件“都启动起来”就结束，而是覆盖业务数据库变更、订单状态流转、历史维度版本、实时计算、幂等落库、质量验收、监控告警和故障恢复。
 
@@ -24,6 +24,10 @@ flowchart LR
     L --> C["ClickHouse"]
     C --> BI["Power BI 业务看板"]
     C --> S["Streamlit 诊断页"]
+    M --> SP["Spark SQL 历史回补"]
+    SP --> PQ["按日期分区 Parquet"]
+    C --> RC["Spark SQL 实时/离线对账"]
+    SP --> RC
     F1 --> P["Prometheus / Grafana / Alertmanager"]
     FD --> P
 ```
@@ -50,6 +54,7 @@ flowchart LR
 | MySQL | 交易库、主数据、SCD2 | 适合事务更新、主键约束和 binlog CDC |
 | Kafka | ODS/DWD/ADS 消息层 | 解耦、削峰、可重放；Upsert Topic 表达更新与删除 |
 | Flink SQL / CDC | 清洗、Join、窗口、状态更新 | 支持事件时间、有状态流计算和数据库增量捕获 |
+| Spark SQL | 历史日期回补、离线日汇总、实时/离线对账 | 与 Flink 分工：流式增量计算之外提供可重复的批量重算能力 |
 | RocksDB + Checkpoint | 算子状态与恢复 | 大状态不完全占用 JVM 堆，故障后从一致状态恢复 |
 | ClickHouse | DWD/ADS 查询服务层 | 列式存储适合明细抽查和聚合分析 |
 | Python Loader | Kafka 到 ClickHouse 常驻装载、坏消息隔离与批量回放 | 展示批量、重试、显式 offset、DLQ 与逻辑幂等边界 |
@@ -69,6 +74,7 @@ flowchart LR
 | DWD | Kafka + ClickHouse | 一次行为事件；一条订单明细及其订单/支付/退款/历史商品快照 |
 | DWS | Flink SQL 逻辑层 | 窗口或订单级中间聚合，不单独持久化 |
 | ADS | Kafka + ClickHouse | 时间窗口、渠道、日期等看板查询粒度 |
+| 离线 ADS | Parquet（按 `order_date` 分区） | Spark SQL 历史重算结果与对账明细 |
 
 准确说法是“ODS、DWD、ADS 持久化，DWS 作为逻辑聚合层”，不是完整四层物理数仓。
 
@@ -123,13 +129,14 @@ python scripts\quality_report.py --output artifacts\latest_quality_report.md
 python scripts\delete_tombstone_drill.py
 $env:JOURNEYS='10000'; .\scripts\fault_recovery_drill.ps1
 .\scripts\benchmark_pipeline.ps1 -Journeys 10000 -Orders 1000
+.\scripts\run_spark_backfill.ps1 -StartDate 2026-08-11 -EndDate 2026-08-12
 ```
 
 故障脚本会杀掉并重新拉起 TaskManager，要求出现新的 Checkpoint 恢复证据，再执行 Kafka 重放和业务键验收。压测报告只记录增量 Kafka offset 与本机实测，不使用累计行数伪造吞吐。
 
 ## 当前规模
 
-- 12 个长期运行容器，另有 1 个一次性 Flink 卷初始化服务。
+- 12 个长期运行容器，另有 1 个一次性 Flink 卷初始化服务和 1 个按需 Spark 批处理容器。
 - 15 个业务 Kafka Topic，另有 1 个纯 `compact` Loader DLQ Topic；业务 Topic 默认 3 分区。DLQ 不按时间删除最新状态，但仍需监控磁盘容量并按审计制度归档。
 - 9 条 Flink 作业：6 条行为链路、1 条多表 CDC、1 条订单 DWD、1 条双 ADS StatementSet。
 - 5 张 MySQL CDC 业务/历史表，另有静态商品、店铺、地区维表和 Schema 契约表。
@@ -144,6 +151,7 @@ $env:JOURNEYS='10000'; .\scripts\fault_recovery_drill.ps1
 - [Schema Evolution](realtime_dw_project/docs/schema_evolution.md)
 - [运行手册](realtime_dw_project/docs/operations_runbook.md)
 - [性能与故障恢复实测](realtime_dw_project/docs/performance_report.md)
+- [Spark SQL 离线回补与实时对账](realtime_dw_project/docs/spark_backfill.md)
 - [面试问答](realtime_dw_project/docs/interview_qa.md)
 - [面试项目讲解脚本](realtime_dw_project/docs/interview_demo_script.md)
 - [简历描述](realtime_dw_project/docs/resume.md)

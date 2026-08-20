@@ -11,13 +11,14 @@
 | Kafka | Confluent 7.6.1 | ODS、DWD、ADS、DLQ 与可重放缓冲 |
 | Flink SQL | 1.18.1 | 事件时间、清洗、Join、窗口、Changelog 聚合 |
 | Flink CDC | MySQL CDC 3.2.1 | MySQL 快照与 ROW binlog 增量捕获 |
+| Spark SQL | 3.5.9（按需 local 模式） | 历史日期回补、Parquet 分区覆盖与批流对账 |
 | MySQL | 8.0 | 交易表、当前维表、SCD2 和 Schema 契约 |
 | ClickHouse | 24.3 | 行为/订单 DWD、ADS、历史维度与质量查询 |
 | Python | 3.x | 数据生成、常驻/批量装载、验收、压测与报告 |
 | Power BI | PBIP/PBIR | 可版本化的企业业务报表 |
 | Streamlit | 开发诊断页 | 明细与告警调试，不作为核心交付 |
 | Prometheus/Grafana/Alertmanager | 固定镜像 | 指标采集、监控看板与告警路由 |
-| Docker Compose | 12 个长期容器 + 1 个初始化服务 | 本地可复现编排 |
+| Docker Compose | 12 个长期容器 + 1 个初始化服务 + 1 个按需 Spark 任务 | 本地可复现编排 |
 
 ## 3. 数据链路
 
@@ -103,6 +104,7 @@ CDC 捕获订单、明细、支付、退款和商品历史版本。生成器先�
 - 10 张 ClickHouse 查询表。
 - 24 项质量规则、21 项快速验收。
 - 12 个长期运行容器和 1 个一次性初始化服务。
+- 1 个 `batch` profile 下的按需 Spark SQL 任务；实测 1,540 笔订单连续回补两次，批流差异为 0 且 Parquet 行数不膨胀。
 
 ## 10. 生产化差距
 

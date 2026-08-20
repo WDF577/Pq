@@ -101,6 +101,11 @@ CREATE TABLE refund_info (
   KEY idx_refund_status_time (refund_status, update_time)
 ) ENGINE=InnoDB;
 
+CREATE USER IF NOT EXISTS 'spark_batch'@'%' IDENTIFIED BY 'spark_batch';
+GRANT SELECT ON ecommerce.order_info TO 'spark_batch'@'%';
+GRANT SELECT ON ecommerce.payment_info TO 'spark_batch'@'%';
+GRANT SELECT ON ecommerce.refund_info TO 'spark_batch'@'%';
+
 CREATE TABLE cdc_schema_contract (
   table_name VARCHAR(64) NOT NULL,
   schema_version INT NOT NULL,

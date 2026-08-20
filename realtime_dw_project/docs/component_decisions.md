@@ -153,11 +153,18 @@
 
 **为什么还要数据质量 SQL：** 单元测试只能证明代码局部行为，不能证明 Kafka 重放、Flink 窗口和 ClickHouse 落库后的业务结果。验收因此检查主键唯一、维表命中、`UV <= PV`、严格漏斗单调和 DLQ 可追踪。
 
-## 13. 为什么没有继续堆 Hadoop、Hive、Spark、Airflow、Redis
+## 13. Spark SQL 离线回补与批流对账
 
-- Hadoop/Hive：当前是单机实时链路，没有离线湖仓和大规模历史批处理需求，加入只会制造伪复杂度。
-- Spark：Flink 已承担实时有状态计算；没有第二套计算引擎必须解决的独立问题。
-- Airflow：现阶段没有复杂的离线 DAG，启动、建表和验收由脚本编排即可。
+**为什么现在加入：** 它不重复 Flink 的实时职责，而是解决明确的历史批处理问题：指标口径变更、历史事实修复或实时结果异常时，按日期范围从 MySQL 事务事实独立重算，并与 ClickHouse 实时 ADS 对账。
+
+**承担职责：** 专用三表只读账号、JDBC 日期谓词下推、订单日汇总、`order_date` 动态分区覆盖、实时/离线全外连接对账和非零失败门禁。Spark 是 Compose `batch` profile 下的一次性任务，不增加常驻资源。
+
+**边界：** 当前为 `local[2]` + 本地 Parquet 的可复现实验，不是分布式 Spark/Hive 湖仓；Parquet 覆盖也不是原子快照提交。生产可按规模替换为对象存储与 Iceberg/Hudi/Delta。
+
+## 14. 为什么仍没有继续堆 Hadoop、Hive、Airflow、Redis
+
+- Hadoop/Hive：当前离线数据量和表数量不需要 HDFS/Metastore；本地 Parquet 已足够证明分区回补语义。
+- Airflow：目前只有一个独立批任务，参数、失败码和证据由脚本管理；形成多任务依赖与 SLA 后再引入调度。
 - Redis：当前没有毫秒级在线特征或高并发 KV 查询场景，MySQL Lookup Cache 已覆盖本项目维表访问。
 
 企业级不是组件越多越好，而是每个组件都有明确职责、失败边界、监控方式和可替换方案。

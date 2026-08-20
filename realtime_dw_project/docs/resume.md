@@ -2,11 +2,11 @@
 
 ## 项目名称
 
-基于 Kafka + Flink CDC + ClickHouse 的电商交易实时数仓
+基于 Kafka + Flink CDC + Spark SQL + ClickHouse 的电商交易批流数仓
 
 ## 技术栈
 
-Kafka / Flink SQL / Flink CDC / RocksDB / ClickHouse / MySQL / Prometheus / Grafana / Alertmanager / Docker Compose / Python / Power BI
+Kafka / Flink SQL / Flink CDC / Spark SQL / RocksDB / ClickHouse / MySQL / Parquet / Prometheus / Grafana / Docker Compose / Python / Power BI
 
 ## 推荐描述
 
@@ -16,6 +16,7 @@ Kafka / Flink SQL / Flink CDC / RocksDB / ClickHouse / MySQL / Prometheus / Graf
 - 为 Flink 配置 10 秒 Checkpoint、RocksDB、固定延迟重启和 Kafka Exactly-Once Sink；TaskManager 故障演练验证 9 条作业恢复、结果重放与业务主键逻辑幂等。
 - 构建 1 分钟经营概览、30 分钟严格漏斗和订单生命周期 ADS；常驻 Loader 以显式 Kafka offset 与确定性版本幂等写 ClickHouse，坏消息获 DLQ broker 确认后才推进 offset，并通过 DELETE tombstone 演练验证软删除恢复。
 - 建设 24 项数据质量规则、端到端业务时间新鲜度监控、Prometheus/Grafana 告警和 Power BI 看板；设计可手动触发的集成 CI，覆盖 9 条 Flink 作业、9 个查询输出与 tombstone 恢复，并配置成功/失败证据归档。
+- 使用 Spark SQL 从 MySQL 事务事实按日期范围重算订单日指标，JDBC 谓词下推后按 `order_date` 动态覆盖 Parquet 分区，并与 ClickHouse 实时 ADS 全外连接对账；实测 1,540 笔订单连续回补两次均得到 5 行渠道指标、差异 0 且结果不膨胀。
 
 ## 不建议使用的说法
 
@@ -27,4 +28,5 @@ Kafka / Flink SQL / Flink CDC / RocksDB / ClickHouse / MySQL / Prometheus / Graf
 - “保证最新值”：ReplacingMergeTree 后台合并是异步的
 - “端到端 Exactly Once”：Kafka 到 ClickHouse 是可重放的逻辑幂等，不是分布式事务
 - “GitHub Actions 已云端验证”：首次 `workflow_dispatch` 成功并留下可访问的 artifact 前，只能说已实现集成工作流和本地等价验收
+- “分布式 Spark/Hive 湖仓”：当前是按需 `local[2]` Spark SQL 与本地 Parquet，用于证明批处理和对账语义
 - 未经实测的固定吞吐：只使用 `artifacts/benchmark_*.md` 的本机实测并注明单机环境
