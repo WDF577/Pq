@@ -126,8 +126,10 @@ $partitions = if ($env:KAFKA_PARTITIONS) { $env:KAFKA_PARTITIONS } else { "3" }
 foreach ($topic in $topics) {
     docker exec rtdw_kafka kafka-topics --bootstrap-server kafka:29092 --create --if-not-exists --topic $topic.Name --partitions $partitions --replication-factor 1 --config "cleanup.policy=$($topic.Policy)"
     Assert-LastExitCode "Creating topic $($topic.Name)"
-    docker exec rtdw_kafka kafka-configs --bootstrap-server kafka:29092 --entity-type topics --entity-name $topic.Name --alter --add-config "cleanup.policy=$($topic.Policy)"
-    Assert-LastExitCode "Applying cleanup policy to topic $($topic.Name)"
+    # NOTE: cleanup.policy is already applied by kafka-topics --create --config above.
+    # The redundant `kafka-configs --alter --add-config cleanup.policy=compact,delete` step was
+    # removed because kafka-configs (Kafka 3.6) splits --add-config on commas and rejects
+    # multi-value policies like "compact,delete".
 }
 
 Write-Host "7. Initialize ClickHouse tables"
