@@ -1,8 +1,19 @@
-# 电商批流一体数仓：Kafka + Flink CDC + Spark SQL + ClickHouse
+# 电商用户行为实时数仓 · Kafka + Flink CDC + ClickHouse + Spark SQL
 
-这是一个可在个人电脑完整复现的企业化实时数仓实验项目。它不是把组件“都启动起来”就结束，而是覆盖业务数据库变更、订单状态流转、历史维度版本、实时计算、幂等落库、质量验收、监控告警和故障恢复。
+> 一个可在个人电脑完整复现的电商**批流一体**实时数仓，覆盖「业务库 CDC + 行为日志 → ODS → DWD → ADS → BI 展示」全链路。
 
-> 项目定位：企业设计思路的单机 Docker 实验环境，不宣称生产高可用集群。
+本项目不止把组件“启动起来”，而是验证了实时数仓的关键机制：数据库变更捕获、订单状态流转、商品历史维度（SCD2）、事件时间窗口计算、幂等落库、坏数据隔离（DLQ）、数据质量验收、监控告警、故障恢复，以及实时与离线对账。
+
+**技术栈**：Kafka · Flink SQL · Flink CDC · Spark SQL · ClickHouse · MySQL · RocksDB · Parquet · Prometheus · Grafana · Docker Compose · Python · Power BI
+
+**核心亮点**
+- 两条链路覆盖 Append 与 Changelog 两类语义：行为日志（事件时间 / Watermark / 严格漏斗）+ 订单 CDC（Upsert Kafka + 撤回流）。
+- 商品 SCD2 历史维度，订单按下单时间命中历史价格（左闭右开区间 `[effective_from, effective_to)`）。
+- 常驻 Loader 以「确定性版本 + 显式 Kafka offset」幂等写 ClickHouse；坏消息经 DLQ broker 确认后才推进 offset。
+- 24 项数据质量规则 + 端到端业务时间新鲜度监控 + Prometheus / Grafana 告警。
+- Spark SQL 从 MySQL 事务事实按日期重算订单日指标，与实时 ADS 全外连接对账。
+
+> ⚠️ 项目定位：企业设计思路的**单机 Docker 实验环境**，用于验证机制与边界，**不宣称生产高可用集群**。
 
 ## 两条业务链路
 
